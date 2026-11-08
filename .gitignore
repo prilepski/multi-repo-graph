@@ -1,0 +1,13 @@
+__pycache__/
+.venv/
+.pytest_cache/
+.DS_Store
+indexer/logs/
+indexer/node_modules/
+spike/**/node_modules/
+spike/repos/
+repos/
+index-store/
+*.dump
+*.dump.zst
+*.db

@@ -1,0 +1,1418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Java Code Graph Viewer</title>
+<style>
+  :root {
+    --bg: #070b14; --panel: #0d1424; --border: #1e2a44; --text: #dbe4f5;
+    --muted: #8ba0c4; --accent: #5b8cff; --accent-soft: #1b2a4d;
+    --repo: #5b8cff; --pkg: #a78bfa; --type: #34d399; --method: #fbbf24;
+    --field: #facc15; --file: #94a3b8; --call: #f87171; --other: #94a3b8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 8px 14px;
+    background: var(--panel); border-bottom: 1px solid var(--border); flex: none;
+  }
+  header h1 { font-size: 15px; font-weight: 600; }
+  header .crumb { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header .spacer { flex: 1; }
+  header button {
+    font: inherit; padding: 5px 12px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel); color: var(--text); cursor: pointer;
+  }
+  header button:hover:not(:disabled) { background: var(--accent-soft); }
+  header button:disabled { opacity: .45; cursor: default; }
+  header button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  #body { flex: 1; display: flex; min-height: 0; position: relative; }
+
+  /* ----- tree panel ----- */
+  #tree {
+    width: 320px; flex: none; background: var(--panel); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; transition: margin-left .18s ease; min-height: 0;
+  }
+  #tree.collapsed { margin-left: -320px; }
+  #tree .tree-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px; border-bottom: 1px solid var(--border); font-weight: 600;
+  }
+  #tree .tree-head span { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  #tree ul { list-style: none; overflow: auto; padding: 6px 4px; flex: 1; }
+  #tree li .row {
+    display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 5px;
+    cursor: pointer; white-space: nowrap; user-select: none;
+  }
+  #tree li .row:hover { background: var(--accent-soft); }
+  #tree li .row.selected { background: var(--accent); color: #fff; }
+  #tree li .row.selected .count, #tree li .row.selected .dot { color: #fff; }
+  #tree .chev {
+    width: 14px; flex: none; color: var(--muted); font-size: 10px; text-align: center;
+    transition: transform .12s ease;
+  }
+  #tree .chev.open { transform: rotate(90deg); }
+  #tree .chev.leaf { visibility: hidden; }
+  #tree .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  #tree .name { overflow: hidden; text-overflow: ellipsis; }
+  #tree .count { color: var(--muted); font-size: 11px; margin-left: auto; padding-left: 8px; }
+  #tree .hint { color: var(--muted); font-size: 11px; padding: 8px 10px; }
+  #tree li ul { padding: 0 0 0 14px; }
+
+  /* ----- canvas: constellation in the universe ----- */
+  #canvas-wrap {
+    flex: 1; position: relative; min-width: 0;
+    background: radial-gradient(ellipse at 50% 42%, #101d38 0%, #0a1224 48%, #05080f 100%);
+  }
+  #canvas-wrap svg { width: 100%; height: 100%; display: block; cursor: grab; }
+  #canvas-wrap svg.panning { cursor: grabbing; }
+  .star { fill: #dfe9ff; }
+  .star.tw { animation: twinkle 3.2s ease-in-out infinite alternate; }
+  @keyframes twinkle { from { opacity: .15; } to { opacity: .9; } }
+  .edge { stroke: #8fa3c8; stroke-width: 1.1; opacity: .38; }
+  .edge.outgoing { stroke: #7fa6ff; opacity: .5; }
+  .edge.incoming { stroke: #d9c58a; opacity: .45; }
+  .edge.typelink { stroke: #b794f6; stroke-dasharray: 5 3; opacity: .55; }
+
+  .mode-switch { display: flex; gap: 0; }
+  .mode-switch button {
+    font: inherit; padding: 5px 12px; border: 1px solid var(--border); cursor: pointer;
+    background: var(--panel); color: var(--text);
+  }
+  .mode-switch button:first-child { border-radius: 6px 0 0 6px; }
+  .mode-switch button:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+  .mode-switch button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .node circle { stroke: rgba(255, 255, 255, .8); stroke-width: 1; cursor: pointer; }
+  .node circle.halo { stroke: none; }
+  .node text { font-size: 11px; fill: #ccd8f0; pointer-events: none; }
+  .node.focus circle { stroke: #fff; stroke-width: 2; }
+  .node.focus circle.halo { animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: .18; } 50% { opacity: .42; } }
+  .node.selected circle { stroke: #fff; stroke-width: 2.5; }
+  .legend {
+    position: absolute; bottom: 10px; right: 12px; background: rgba(10, 16, 32, .82);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted);
+  }
+  .legend .l { display: flex; align-items: center; gap: 6px; }
+  .legend .sw { width: 10px; height: 10px; border-radius: 50%; }
+
+  /* ----- details popup ----- */
+  #details {
+    position: absolute; display: none; width: 320px; max-height: 70%; overflow: auto;
+    background: rgba(13, 20, 36, .96); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 10px 34px rgba(0, 0, 0, .55); padding: 10px 12px; z-index: 20;
+  }
+  #details .d-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  #details .d-head .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  #details .d-head strong { font-size: 13px; word-break: break-all; }
+  #details .d-head .close {
+    margin-left: auto; border: none; background: none; cursor: pointer;
+    font-size: 14px; color: var(--muted); padding: 2px 6px;
+  }
+  #details .d-label { color: var(--muted); font-size: 11px; margin-bottom: 8px; }
+  #details table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  #details td { padding: 3px 4px; vertical-align: top; border-top: 1px solid var(--border); }
+  #details td.k { color: var(--muted); width: 38%; }
+  #details td.v { word-break: break-all; }
+  #details .rel-chip {
+    display: inline-block; margin: 2px 4px 2px 0; padding: 1px 8px; border-radius: 10px;
+    background: var(--accent-soft); color: var(--accent); font-size: 11px;
+  }
+  #details .d-actions { margin-top: 8px; }
+  #details .d-actions button {
+    font: inherit; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel); cursor: pointer;
+  }
+  #details .d-actions button:hover { background: var(--accent-soft); }
+
+  /* ----- statistics mode ----- */
+  #stats-pane {
+    position: absolute; inset: 0; display: none; overflow: auto;
+    padding: 14px 18px 24px; z-index: 10; background: transparent;
+  }
+  #stats-pane .scope-bar {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+  }
+  #stats-pane .scope-bar .crumb { color: var(--muted); font-size: 12px; }
+  #stats-pane .scope-bar button {
+    font: inherit; padding: 3px 10px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--panel); color: var(--text); cursor: pointer;
+  }
+  #stats-pane .scope-bar button:hover { background: var(--accent-soft); }
+  .kpi-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+  .kpi {
+    background: rgba(13, 20, 36, .82); border: 1px solid var(--border);
+    border-radius: 10px; padding: 8px 14px; min-width: 118px;
+  }
+  .kpi .v { font-size: 20px; font-weight: 600; color: var(--text); }
+  .kpi .l { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .stats-grid { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .stats-panel {
+    background: rgba(13, 20, 36, .82); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px; flex: 1 1 380px; min-width: 340px;
+  }
+  .stats-panel h3 { font-size: 12px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+  .stats-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .stats-table th {
+    text-align: left; color: var(--muted); font-weight: 500; padding: 5px 8px;
+    border-bottom: 1px solid var(--border); cursor: pointer; white-space: nowrap;
+  }
+  .stats-table td { padding: 4px 8px; border-bottom: 1px solid rgba(30,42,68,.6);
+    color: var(--text); }
+  .stats-table td.num, .stats-table th.num { text-align: right;
+    font-variant-numeric: tabular-nums; }
+  .stats-table tr.total td { border-top: 1px solid var(--border); color: var(--muted); }
+  .stats-table .sw { display: inline-block; width: 9px; height: 9px;
+    border-radius: 50%; margin-right: 7px; vertical-align: baseline; }
+  .bar-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .bar-label { width: 130px; font-size: 11px; color: var(--muted);
+    text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-track { flex: 1; height: 14px; border-radius: 3px; overflow: hidden;
+    background: rgba(30, 42, 68, .5); display: flex; }
+  .bar-seg { height: 100%; }
+  .bar-val { width: 70px; font-size: 11px; color: var(--text);
+    font-variant-numeric: tabular-nums; }
+
+  .repo-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+  .repo-chip {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 12px;
+    padding: 4px 12px; border: 1px solid var(--border); border-radius: 14px;
+    background: rgba(13,20,36,.8); color: var(--text); cursor: pointer; user-select: none;
+  }
+  .repo-chip:hover { background: var(--accent-soft); }
+  .repo-chip.active { border-color: var(--accent); background: var(--accent-soft);
+    font-weight: 500; }
+  .repo-chip .muted { color: var(--muted); font-size: 11px; }
+  .cat-chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 10px; }
+  .cat-chip {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
+    padding: 3px 9px; border: 1px solid var(--border); border-radius: 12px;
+    background: rgba(13,20,36,.8); color: var(--text); cursor: pointer; user-select: none;
+  }
+  .cat-chip .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .cat-chip.off { opacity: .38; text-decoration: line-through; }
+  #stats-tooltip {
+    position: fixed; z-index: 60; display: none; pointer-events: none;
+    background: rgba(10,16,32,.97); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 11px; font-size: 12px; color: var(--text);
+    box-shadow: 0 8px 24px rgba(0,0,0,.5); max-width: 280px;
+  }
+  #stats-tooltip .muted { color: var(--muted); font-size: 11px; }
+  #drill-panel { margin-top: 16px; }
+  #drill-panel .drill-head { display: flex; align-items: center; gap: 10px;
+    margin-bottom: 8px; }
+  #drill-panel .drill-head button {
+    font: inherit; padding: 2px 10px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--panel); color: var(--text); cursor: pointer; }
+  .clickable { cursor: pointer; }
+
+  #toast {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    background: #111827; color: #fff; padding: 6px 14px; border-radius: 8px;
+    font-size: 12px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 30;
+  }
+  #toast.show { opacity: .95; }
+
+  /* ----- search ----- */
+  #search-box { position: relative; flex: none; }
+  #search-box input {
+    font: inherit; width: 280px; padding: 5px 10px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--panel); color: var(--text); outline: none;
+  }
+  #search-box input:focus { border-color: var(--accent); }
+  #search-box input::placeholder { color: var(--muted); }
+  #search-drop {
+    position: absolute; top: calc(100% + 6px); left: 0; width: 460px; max-width: 70vw;
+    background: rgba(13, 20, 36, .97); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, .55); max-height: 420px; overflow: auto;
+    display: none; z-index: 40;
+  }
+  #search-drop .group {
+    padding: 6px 12px 3px; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--muted);
+  }
+  #search-drop .hit { display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; }
+  #search-drop .hit:hover, #search-drop .hit.active { background: var(--accent-soft); }
+  #search-drop .hit .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  #search-drop .hit .main { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #search-drop .hit .sub {
+      color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; flex: 1; min-width: 0; text-align: right;
+  }
+  #search-drop .empty { padding: 10px 12px; color: var(--muted); }
+
+  #panel-toggle {
+    position: absolute; top: 10px; left: 10px; z-index: 15;
+    font: inherit; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel); cursor: pointer;
+  }
+  #panel-toggle:hover { background: var(--accent-soft); }
+  #panel-toggle.hidden-when-open { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Java Code Graph</h1>
+  <div class="mode-switch" role="group" aria-label="Surface">
+    <button id="surface-graph" class="active" type="button">Graph</button>
+    <button id="surface-stats" type="button">Statistics</button>
+  </div>
+  <div class="mode-switch" id="browse-modes" role="group" aria-label="Browsing mode">
+    <button id="mode-packages" class="active" type="button">Packages</button>
+    <button id="mode-files" type="button">Files</button>
+  </div>
+  <div id="search-box">
+    <input id="search-input" type="search" placeholder="Search files &amp; classes…"
+           autocomplete="off" spellcheck="false" aria-label="Search files and classes">
+    <div id="search-drop" role="listbox" aria-label="Search results"></div>
+  </div>
+  <span class="crumb" id="crumb">Repositories</span>
+  <span class="spacer"></span>
+  <button id="btn-up" disabled>&#8593; Level up</button>
+  <button id="btn-reset">Reset</button>
+</header>
+<div id="body">
+  <aside id="tree">
+    <div class="tree-head">
+      <span>Graph tree</span>
+      <button id="tree-collapse" title="Collapse panel">&#9664;</button>
+    </div>
+    <ul id="tree-root"></ul>
+    <ul id="stats-tree-root" style="display:none"></ul>
+    <div class="hint" id="tree-hint">Click: select &amp; details &middot; Double-click: drill down</div>
+  </aside>
+  <div id="canvas-wrap">
+    <button id="panel-toggle" title="Show tree">&#9654; Tree</button>
+    <svg id="canvas"></svg>
+    <div class="legend" id="legend"></div>
+    <div id="stats-pane">
+      <div class="scope-bar">
+        <strong id="stats-scope-label">All repositories</strong>
+        <span class="crumb" id="stats-scope-crumb"></span>
+        <button id="stats-scope-reset" type="button" title="Reset scope" style="display:none">&#8617; Reset scope</button>
+        <span style="flex:1"></span>
+        <div class="mode-switch" role="group" aria-label="Statistic metric">
+          <button id="metric-files" class="active" type="button">Files</button>
+          <button id="metric-lines" type="button">Lines</button>
+        </div>
+      </div>
+      <div class="kpi-row" id="stats-kpis"></div>
+      <div class="repo-chips" id="repo-chips"></div>
+      <div class="cat-chips" id="cat-chips"></div>
+      <div class="stats-grid">
+        <div class="stats-panel">
+          <h3 id="donut-title">Files by category</h3>
+          <div id="stats-donut" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"></div>
+        </div>
+        <div class="stats-panel">
+          <h3 id="bars-title">Files by category</h3>
+          <div id="stats-bars"></div>
+        </div>
+      </div>
+      <div class="stats-panel">
+        <h3>Category detail</h3>
+        <div class="table-responsive"><table class="stats-table" id="stats-table"></table></div>
+      </div>
+      <div class="stats-panel" id="drill-panel" style="display:none">
+        <div class="drill-head">
+          <span class="sw" id="drill-dot" style="width:10px;height:10px;border-radius:50%;display:inline-block"></span>
+          <strong id="drill-title"></strong>
+          <span class="crumb" id="drill-sub" style="color:var(--muted);font-size:11px"></span>
+          <button id="drill-close" type="button">&times; close</button>
+        </div>
+        <div class="table-responsive"><table class="stats-table" id="drill-table"></table></div>
+      </div>
+    </div>
+    <div id="stats-tooltip"></div>
+    <div id="details"></div>
+    <div id="toast"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+const LABEL_COLORS = {
+  Repository: getVar("--repo"), Package: getVar("--pkg"), Type: getVar("--type"),
+  Method: getVar("--method"), Field: getVar("--field"), File: getVar("--file"),
+  CallTarget: getVar("--call"),
+};
+function getVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function colorFor(label) { return LABEL_COLORS[label] || getVar("--other"); }
+function shortName(name, max) {
+  name = name || "";
+  // method ids: keep local part; file paths: keep basename (with extension)
+  const short = name.includes("#") ? name.split("#")[0]
+    : name.includes("/") ? name.split("/").pop()
+    : name.split(".").pop();
+  return short.length > (max || 22) ? short.slice(0, max - 1) + "…" : short;
+}
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+async function api(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.status);
+  return res.json();
+}
+
+/* ---------------- toast ---------------- */
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
+}
+
+/* ================= CANVAS ================= */
+const svg = document.getElementById("canvas");
+const wrap = document.getElementById("canvas-wrap");
+const NS = "http://www.w3.org/2000/svg";
+let view = { x: 0, y: 0, k: 1 };
+let drillStack = [];   // stack of {focus} descriptors for level-up
+let current = null;    // current neighborhood payload (null = root overview)
+let selectedEid = null;
+
+function svgEl(tag, attrs) {
+  const el = document.createElementNS(NS, tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+function applyView() {
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  document.getElementById("viewport").setAttribute(
+    "transform", `translate(${view.x},${view.y}) scale(${view.k})`);
+  // parallax depth: star layers drift slower than the graph
+  const far = document.getElementById("stars-far");
+  const near = document.getElementById("stars-near");
+  if (far) far.setAttribute("transform", `translate(${W / 2 + view.x * 0.22},${H / 2 + view.y * 0.22})`);
+  if (near) near.setAttribute("transform", `translate(${W / 2 + view.x * 0.5},${H / 2 + view.y * 0.5}) scale(${1 + (view.k - 1) * 0.15})`);
+}
+
+function fitView(nodes, positions) {
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+  for (const p of Object.values(positions)) {
+    minX = Math.min(minX, p.x - 60); maxX = Math.max(maxX, p.x + 60);
+    minY = Math.min(minY, p.y - 30); maxY = Math.max(maxY, p.y + 30);
+  }
+  if (!Object.keys(positions).length) { view = { x: 0, y: 0, k: 1 }; applyView(); return; }
+  const k = Math.min(1.4, Math.min(W / (maxX - minX), H / (maxY - minY)));
+  view.k = k;
+  view.x = W / 2 - k * (minX + maxX) / 2;
+  view.y = H / 2 - k * (minY + maxY) / 2;
+  applyView();
+}
+
+function radialLayout(focusName, items, W, H) {
+  const cx = W / 2, cy = H / 2;
+  const positions = {};
+  const maxR = Math.min(W, H) * 0.36;
+  const groups = {};
+  for (const it of items) {
+    const key = (it.outgoing ? "→ " : "← ") + it.rel;
+    (groups[key] = groups[key] || []).push(it);
+  }
+  const keys = Object.keys(groups).sort();
+  let start = -Math.PI / 2;
+  const total = items.length;
+  for (const key of keys) {
+    const group = groups[key];
+    const sweep = (group.length / total) * Math.PI * 1.7;
+    group.forEach((it, i) => {
+      const t = group.length === 1 ? 0.5 : i / (group.length - 1);
+      const angle = start + t * sweep;
+      const r = maxR * (0.55 + 0.45 * ((i % 3) / 2));
+      positions[it.eid] = { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+    });
+    start += sweep + 0.22;
+  }
+  if (focusName) positions.__focus = { x: cx, y: cy };
+  return positions;
+}
+
+function renderRootOverview(roots) {
+  const vp = document.getElementById("viewport");
+  vp.innerHTML = "";
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  const positions = {};
+  roots.forEach((r, i) => {
+    const a = (i / roots.length) * Math.PI * 2 - Math.PI / 2;
+    positions[r.eid] = {
+      x: W / 2 + Math.min(W, H) * 0.25 * Math.cos(a),
+      y: H / 2 + Math.min(W, H) * 0.25 * Math.sin(a),
+    };
+  });
+  for (const r of roots) drawNode(vp, r, positions[r.eid], false);
+  fitView(roots, positions);
+}
+
+function renderNeighborhood(data) {
+  const vp = document.getElementById("viewport");
+  vp.innerHTML = "";
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  const cx = W / 2, cy = H / 2;
+  const positions = {};
+  positions[data.focus.eid] = { x: cx, y: cy };
+  const direct = data.nodes.filter(n => !n.anchor);
+  const ring2 = data.nodes.filter(n => n.anchor);
+
+  // relationship of each direct node to the focus (from edge list)
+  const relOf = {};
+  for (const e of data.edges) {
+    if (e.src === data.focus.eid) relOf[e.dst] = "→ " + e.rel;
+    else if (e.dst === data.focus.eid) relOf[e.src] = "← " + e.rel;
+  }
+  // ring 1: radial by relationship group
+  const groups = {};
+  for (const n of direct) { const k = relOf[n.eid] || "· other"; (groups[k] = groups[k] || []).push(n); }
+  const keys = Object.keys(groups).sort();
+  const maxR = Math.min(W, H) * 0.36;
+  let start = -Math.PI / 2;
+  const total = direct.length || 1;
+  for (const key of keys) {
+    const g = groups[key];
+    const sweep = (g.length / total) * Math.PI * 1.7;
+    g.forEach((n, i) => {
+      const t = g.length === 1 ? 0.5 : i / (g.length - 1);
+      const a = start + t * sweep;
+      const r = maxR * (0.55 + 0.45 * ((i % 3) / 2));
+      positions[n.eid] = { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+    });
+    start += sweep + 0.22;
+  }
+  // ring 2: class links orbit their anchor type
+  const counts = {};
+  for (const n of ring2) {
+    const a = positions[n.anchor] || { x: cx, y: cy };
+    const i = counts[n.anchor] = (counts[n.anchor] || 0) + 1;
+    const baseAng = Math.atan2((a.y - cy) || 0.01, (a.x - cx) || 0.01);
+    const ang = baseAng + (i - 1) * 0.75 - 0.375;
+    positions[n.eid] = { x: a.x + 82 * Math.cos(ang), y: a.y + 82 * Math.sin(ang) };
+  }
+  // edges
+  for (const e of data.edges) {
+    const p1 = positions[e.src], p2 = positions[e.dst];
+    if (!p1 || !p2) continue;
+    const focusEdge = (e.src === data.focus.eid || e.dst === data.focus.eid);
+    const cls = focusEdge
+      ? "edge " + (e.src === data.focus.eid ? "outgoing" : "incoming")
+      : "edge typelink";
+    const line = svgEl("line", { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, class: cls });
+    const t = svgEl("title", {});
+    t.textContent = e.rel;
+    line.appendChild(t);
+    vp.appendChild(line);
+  }
+  drawNode(vp, data.focus, positions[data.focus.eid], true);
+  for (const n of data.nodes) drawNode(vp, n, positions[n.eid], false);
+  fitView(data.nodes, positions);
+  if (data.truncated) toast("Large neighborhood — showing a capped subset");
+}
+
+function depthOf(eid) {
+  // deterministic pseudo-depth per node: drives glow size/brightness variance
+  let h = 0;
+  for (const c of String(eid)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return 0.8 + ((h % 100) / 100) * 0.45;
+}
+
+function drawNode(vp, node, pos, isFocus) {
+  const g = svgEl("g", { class: "node" + (isFocus ? " focus" : ""), transform: `translate(${pos.x},${pos.y})` });
+  g.dataset.eid = node.eid;
+  const color = colorFor(node.label);
+  const depth = isFocus ? 1.15 : depthOf(node.eid);
+  const r = (isFocus ? 15 : (node.label === "Repository" ? 13 : node.label === "Package" ? 10 : node.label === "Type" ? 9 : 7)) * depth;
+  // glow halo
+  g.appendChild(svgEl("circle", { r: r * 2.3, fill: color, opacity: 0.16, class: "halo" }));
+  // orb body: radial gradient for a lit-sphere look
+  g.appendChild(svgEl("circle", { r, fill: `url(#grad-${node.label || "other"})` }));
+  const label = svgEl("text", { x: 0, y: r + 13, "text-anchor": "middle", opacity: Math.min(1, 0.6 + depth * 0.35) });
+  label.textContent = shortName(node.name);
+  g.appendChild(label);
+  const title = svgEl("title", {});
+  title.textContent = `${node.label}: ${node.name}` + (node.file ? `\nfile: ${node.file}` : "");
+  g.appendChild(title);
+  if (node.eid === selectedEid) g.classList.add("selected");
+  vp.appendChild(g);
+}
+
+/* click vs double-click disambiguation */
+let clickTimer = null;
+svg.addEventListener("click", (e) => {
+  const nodeEl = e.target.closest(".node");
+  if (!nodeEl) return;
+  const eid = nodeEl.dataset.eid;
+  clearTimeout(clickTimer);
+  clickTimer = setTimeout(() => selectNode(eid, e), 220);
+});
+svg.addEventListener("dblclick", (e) => {
+  const nodeEl = e.target.closest(".node");
+  if (!nodeEl) return;
+  clearTimeout(clickTimer);
+  drillDown(nodeEl.dataset.eid);
+});
+
+/* pan & zoom */
+let panning = null;
+svg.addEventListener("mousedown", (e) => {
+  if (e.target.closest(".node")) return;
+  panning = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
+  svg.classList.add("panning");
+});
+window.addEventListener("mousemove", (e) => {
+  if (!panning) return;
+  view.x = panning.vx + (e.clientX - panning.x);
+  view.y = panning.vy + (e.clientY - panning.y);
+  applyView();
+});
+window.addEventListener("mouseup", () => { panning = null; svg.classList.remove("panning"); });
+wrap.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const k = Math.min(4, Math.max(0.15, view.k * (e.deltaY < 0 ? 1.12 : 0.89)));
+  const rect = wrap.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  view.x = mx - (mx - view.x) * (k / view.k);
+  view.y = my - (my - view.y) * (k / view.k);
+  view.k = k;
+  applyView();
+}, { passive: false });
+
+/* ---------------- details popup ---------------- */
+async function selectNode(eid, ev) {
+  selectedEid = eid;
+  document.querySelectorAll(".node").forEach(n => n.classList.toggle("selected", n.dataset.eid === eid));
+  highlightTree(eid);
+  let d;
+  try { d = await api("/api/details?eid=" + encodeURIComponent(eid)); } catch (err) { toast("Details failed: " + err.message); return; }
+  const box = document.getElementById("details");
+  const label = d.labels[0];
+  const name = (d.props.path || d.props.fqn || d.props.name || d.props.id || d.eid);
+  let html = `<div class="d-head"><span class="dot" style="background:${colorFor(label)}"></span>
+    <strong>${esc(name)}</strong>
+    <button class="close" title="Close">&times;</button></div>
+    <div class="d-label">${esc(d.labels.join(" + "))}</div><table>`;
+  for (const [k, v] of Object.entries(d.props)) {
+    if (v === null || v === undefined) continue;
+    html += `<tr><td class="k">${esc(k)}</td><td class="v">${esc(String(v))}</td></tr>`;
+  }
+  html += `</table><div style="margin-top:8px">`;
+  for (const r of d.relations) html += `<span class="rel-chip">${esc(r.type)} &times; ${r.count}</span>`;
+  html += `</div><div class="d-actions"><button data-drill>Drill down here</button></div>`;
+  box.innerHTML = html;
+  box.style.display = "block";
+  const wrapRect = wrap.getBoundingClientRect();
+  let x = (ev ? ev.clientX - wrapRect.left : 40) + 14;
+  let y = (ev ? ev.clientY - wrapRect.top : 40) + 10;
+  if (x + 330 > wrap.clientWidth) x -= 350;
+  if (y + 100 > wrap.clientHeight) y = Math.max(10, wrap.clientHeight - 320);
+  box.style.left = x + "px"; box.style.top = y + "px";
+  box.querySelector(".close").onclick = () => { box.style.display = "none"; };
+  box.querySelector("[data-drill]").onclick = () => { box.style.display = "none"; drillDown(eid); };
+}
+
+/* ---------------- drill navigation ---------------- */
+let treeMode = "packages";
+
+async function loadRootOverview() {
+  const roots = await api("/api/root?mode=" + treeMode);
+  current = null; drillStack = []; selectedEid = null;
+  document.getElementById("btn-up").disabled = true;
+  document.getElementById("crumb").textContent = "Repositories";
+  treeUl.innerHTML = "";
+  for (const r of roots) treeUl.appendChild(treeRow(r));
+  renderRootOverview(roots);
+}
+
+async function switchMode(mode) {
+  if (mode === treeMode) return;
+  treeMode = mode;
+  document.getElementById("mode-packages").classList.toggle("active", mode === "packages");
+  document.getElementById("mode-files").classList.toggle("active", mode === "files");
+  expanded.clear();
+  document.getElementById("details").style.display = "none";
+  await loadRootOverview();
+}
+document.getElementById("mode-packages").addEventListener("click", () => switchMode("packages"));
+document.getElementById("mode-files").addEventListener("click", () => switchMode("files"));
+
+async function drillDown(eid) {
+  let data;
+  const depth = treeMode === "files" ? 2 : 1;
+  try {
+    data = await api(`/api/neighborhood?eid=${encodeURIComponent(eid)}&mode=${treeMode}&depth=${depth}`);
+  } catch (err) { toast("Drill failed: " + err.message); return; }
+  if (current) drillStack.push(current);
+  document.getElementById("btn-up").disabled = false;
+  current = data;
+  document.getElementById("crumb").textContent =
+    `${data.focus.label}: ${data.focus.name}` +
+    (drillStack.length ? `  (depth ${drillStack.length + 1})` : "");
+  document.getElementById("details").style.display = "none";
+  renderNeighborhood(data);
+  expandTreeTo(eid);
+}
+
+async function levelUp() {
+  if (!drillStack.length) { await loadRootOverview(); return; }
+  const prev = drillStack.pop();
+  current = prev;
+  document.getElementById("btn-up").disabled = drillStack.length === 0;
+  document.getElementById("crumb").textContent =
+    drillStack.length ? `${prev.focus.label}: ${prev.focus.name}  (depth ${drillStack.length + 1})`
+                      : "Repositories";
+  document.getElementById("details").style.display = "none";
+  renderNeighborhood(prev);
+}
+
+document.getElementById("btn-up").addEventListener("click", levelUp);
+document.getElementById("btn-reset").addEventListener("click", () => loadRootOverview().catch(e => toast(e.message)));
+
+/* ================= TREE ================= */
+const treeRoot = document.getElementById("tree");
+const treeUl = document.getElementById("tree-root");
+const expanded = new Set();   // eids already loaded
+
+function treeRow(node) {
+  const li = document.createElement("li");
+  const row = document.createElement("div");
+  row.className = "row"; row.dataset.eid = node.eid;
+  const hasKids = node.children > 0;
+  const chev = document.createElement("span");
+  chev.className = "chev" + (hasKids ? "" : " leaf");
+  chev.textContent = "▶";
+  const dot = document.createElement("span");
+  dot.className = "dot"; dot.style.background = colorFor(node.label);
+  const name = document.createElement("span");
+  name.className = "name"; name.textContent = shortName(node.name, 26);
+  name.title = `${node.label}: ${node.name}`;
+  row.append(chev, dot, name);
+  if (hasKids) {
+    const count = document.createElement("span");
+    count.className = "count"; count.textContent = node.children;
+    row.appendChild(count);
+  }
+  li.appendChild(row);
+  const childUl = document.createElement("ul");
+  childUl.style.display = "none";
+  li.appendChild(childUl);
+
+  row.addEventListener("click", (e) => {
+    highlightTree(node.eid);
+    selectNode(node.eid, e);
+  });
+  row.addEventListener("dblclick", () => drillDown(node.eid));
+  chev.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (!hasKids) return;
+    const open = childUl.style.display !== "none";
+    childUl.style.display = open ? "none" : "block";
+    chev.classList.toggle("open", !open);
+    if (!open && !expanded.has(node.eid)) {
+      expanded.add(node.eid);
+      const prev = chev.textContent;
+      chev.textContent = "…";
+      try {
+        const kids = await api(`/api/children?eid=${encodeURIComponent(node.eid)}&mode=${treeMode}`);
+        for (const k of kids.children) childUl.appendChild(treeRow(k));
+        if (kids.truncated) {
+          const note = document.createElement("div");
+          note.className = "hint"; note.textContent = `… showing first ${kids.children.length}`;
+          childUl.appendChild(note);
+        }
+      } catch (err) {
+        toast("Tree load failed: " + err.message);
+      } finally {
+        chev.textContent = prev;
+      }
+    }
+  });
+  return li;
+}
+
+function highlightTree(eid) {
+  treeRoot.querySelectorAll(".row.selected").forEach(r => r.classList.remove("selected"));
+  const row = treeRoot.querySelector(`.row[data-eid="${CSS.escape(eid)}"]`);
+  if (row) {
+    row.classList.add("selected");
+    row.scrollIntoView({ block: "nearest" });
+  }
+}
+
+async function expandTreeTo(eid) {
+  // expand ancestors of eid in the tree (mode-aware hierarchy walk)
+  try {
+    const chain = await api(`/api/ancestors?eid=${encodeURIComponent(eid)}&mode=${treeMode}`);
+    for (const anc of chain) {
+      const row = treeRoot.querySelector(`.row[data-eid="${CSS.escape(anc.eid)}"]`);
+      if (row && row.nextElementSibling) {
+        const chev = row.querySelector(".chev");
+        const ul = row.nextElementSibling;
+        if (ul.style.display === "none") {
+          ul.style.display = "block";
+          chev.classList.add("open");
+          if (!expanded.has(anc.eid)) {
+            expanded.add(anc.eid);
+            const kids = await api(`/api/children?eid=${encodeURIComponent(anc.eid)}&mode=${treeMode}`);
+            for (const k of kids.children) ul.appendChild(treeRow(k));
+          }
+        }
+      }
+    }
+    highlightTree(eid);
+  } catch { /* ancestors endpoint is optional sugar */ }
+}
+
+/* panel collapse */
+const toggleBtn = document.getElementById("panel-toggle");
+document.getElementById("tree-collapse").addEventListener("click", () => {
+  treeRoot.classList.add("collapsed");
+  toggleBtn.classList.remove("hidden-when-open");
+});
+toggleBtn.addEventListener("click", () => {
+  treeRoot.classList.remove("collapsed");
+  toggleBtn.classList.add("hidden-when-open");
+});
+
+/* ================= SEARCH ================= */
+const searchInput = document.getElementById("search-input");
+const searchDrop = document.getElementById("search-drop");
+let searchTimer = null;
+let searchSeq = 0;
+let searchHits = [];        // flat list of {eid, kind: 'type'|'file', main, sub, label}
+let searchActive = -1;
+
+function closeSearch() {
+  searchDrop.style.display = "none";
+  searchActive = -1;
+}
+
+function renderSearchResults(data) {
+  searchHits = [];
+  searchDrop.innerHTML = "";
+  const types = data.types || [], files = data.files || [];
+  if (!types.length && !files.length) {
+    searchDrop.innerHTML = `<div class="empty">No matches</div>`;
+    searchDrop.style.display = "block";
+    return;
+  }
+  if (types.length) {
+    const g = document.createElement("div");
+    g.className = "group"; g.textContent = "Classes";
+    searchDrop.appendChild(g);
+    for (const t of types) {
+      const hit = {
+        eid: t.eid, kind: "type", main: t.name, label: "Type",
+        sub: (t.fqn || "").split(".").slice(0, -1).join("."),
+      };
+      searchHits.push(hit);
+      searchDrop.appendChild(searchRow(hit, t.kind));
+    }
+  }
+  if (files.length) {
+    const g = document.createElement("div");
+    g.className = "group"; g.textContent = "Files";
+    searchDrop.appendChild(g);
+    for (const f of files) {
+      const segs = f.path.split("/");
+      const hit = {
+        eid: f.eid, kind: "file", main: segs.pop(), label: "File",
+        sub: segs.slice(0, 4).join("/") + (segs.length > 4 ? "/…" : ""),
+      };
+      searchHits.push(hit);
+      searchDrop.appendChild(searchRow(hit));
+    }
+  }
+  searchDrop.style.display = "block";
+}
+
+function searchRow(hit, typeKind) {
+  const div = document.createElement("div");
+  div.className = "hit"; div.dataset.eid = hit.eid;
+  div.setAttribute("role", "option");
+  const color = colorFor(hit.kind === "type" ? "Type" : "File");
+  div.innerHTML = `<span class="dot" style="background:${color}"></span>
+    <span class="main">${esc(hit.main)}${typeKind ? ` <span style="color:var(--muted)">(${esc(typeKind)})</span>` : ""}</span>
+    <span class="sub">${esc(hit.sub)}</span>`;
+  div.addEventListener("mousedown", (e) => { e.preventDefault(); jumpTo(hit.eid); });
+  div.addEventListener("mouseenter", () => {
+    searchActive = searchHits.findIndex(h => h.eid === hit.eid);
+    updateActiveHit();
+  });
+  return div;
+}
+
+function updateActiveHit() {
+  [...searchDrop.querySelectorAll(".hit")].forEach((el, i) => {
+    el.classList.toggle("active", i === searchActive);
+  });
+  const el = searchDrop.querySelectorAll(".hit")[searchActive];
+  if (el) el.scrollIntoView({ block: "nearest" });
+}
+
+async function jumpTo(eid) {
+  closeSearch();
+  searchInput.blur();
+  await drillDown(eid);
+  // open the details popup for the jumped-to node
+  setTimeout(() => selectNode(eid), 600);
+}
+
+searchInput.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  const q = searchInput.value.trim();
+  if (q.length < 2) { closeSearch(); return; }
+  searchTimer = setTimeout(async () => {
+    const seq = ++searchSeq;
+    try {
+      const data = await api("/api/search?q=" + encodeURIComponent(q));
+      if (seq !== searchSeq) return;  // stale response
+      renderSearchResults(data);
+    } catch (err) { toast("Search failed: " + err.message); }
+  }, 250);
+});
+searchInput.addEventListener("keydown", (e) => {
+  const hits = [...searchDrop.querySelectorAll(".hit")];
+  if (!hits.length) return;
+  if (e.key === "ArrowDown") { e.preventDefault(); searchActive = Math.min(hits.length - 1, searchActive + 1); updateActiveHit(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); searchActive = Math.max(0, searchActive - 1); updateActiveHit(); }
+  else if (e.key === "Enter") {
+    e.preventDefault();
+    const idx = searchActive >= 0 ? searchActive : 0;
+    if (searchHits[idx]) jumpTo(searchHits[idx].eid);
+  } else if (e.key === "Escape") closeSearch();
+});
+searchInput.addEventListener("blur", () => setTimeout(closeSearch, 150));
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#search-box")) closeSearch();
+});
+
+/* legend */(function buildLegend() {
+  const legend = document.getElementById("legend");
+  for (const [label, color] of Object.entries(LABEL_COLORS)) {
+    const l = document.createElement("div");
+    l.className = "l";
+    l.innerHTML = `<span class="sw" style="background:${color}"></span>${label}`;
+    legend.appendChild(l);
+  }
+})();
+
+/* ================= STATISTICS MODE ================= */
+const CATEGORY_COLORS = {
+  java_backend: "#34d399", java_test: "#6ee7b7", frontend_logic: "#5b8cff",
+  frontend_test: "#93c5fd", frontend_style: "#f472b6", frontend_markup: "#38bdf8",
+  shell_script: "#fbbf24", python_script: "#a3e635", sql: "#22d3ee",
+  protocol_schema: "#c084fc", build_script: "#f59e0b", ci_cd: "#fb923c",
+  container: "#f87171", iac: "#eab308", runtime_config: "#94a3b8",
+  xml_config: "#cbd5e1", documentation: "#a78bfa", data_fixture: "#2dd4bf",
+  image: "#fca5a5", font: "#fdba74", binary_blob: "#64748b",
+  unreadable: "#ef4444", other: "#8ba0c4",
+};
+function catColor(c) { return CATEGORY_COLORS[c] || CATEGORY_COLORS.other; }
+const fmt = n => (n == null || n === "" || (typeof n === "number" && Number.isNaN(n))
+  ? "—" : (typeof n === "number" ? n.toLocaleString() : String(n)));
+const fmtOr0 = n => (n == null ? 0 : Number(n) || 0);
+
+let surface = "graph";           // graph | statistics
+let statsScope = null;           // {repo, prefix} | null
+let statsMetric = "files";       // files | lines — coordinates ALL statistics
+let catRowsCache = [];           // last unfiltered category rows
+let catFilter = new Set();       // excluded categories
+let drillCategory = null;
+let lastLocTotals = null;        // currently drilled category
+
+function setSurface(which) {
+  surface = which;
+  document.getElementById("surface-graph").classList.toggle("active", which === "graph");
+  document.getElementById("surface-stats").classList.toggle("active", which === "statistics");
+  document.getElementById("stats-pane").style.display = which === "statistics" ? "block" : "none";
+  document.getElementById("canvas").style.display = which === "statistics" ? "none" : "block";
+  document.getElementById("legend").style.display = which === "statistics" ? "none" : "flex";
+  document.getElementById("browse-modes").style.display = which === "statistics" ? "none" : "flex";
+  document.getElementById("tree-root").style.display = which === "statistics" ? "none" : "block";
+  document.getElementById("stats-tree-root").style.display = which === "statistics" ? "block" : "none";
+  document.getElementById("tree-hint").textContent = which === "statistics"
+    ? "Click: scope statistics to this folder" : "Click: select & details · Double-click: drill down";
+  if (which === "statistics") {
+    if (!document.getElementById("stats-tree-root").children.length) loadStatsTreeRoot();
+    refreshStats();
+  } else {
+    applyView();
+  }
+}
+document.getElementById("surface-graph").addEventListener("click", () => setSurface("graph"));
+document.getElementById("surface-stats").addEventListener("click", () => setSurface("statistics"));
+document.getElementById("stats-scope-reset").addEventListener("click", () => {
+  statsScope = null; refreshStats();
+});
+let lastOverview = null;
+let lastLocData = null;
+
+function setRepoScope(repo /* string | null */) {
+  statsScope = repo ? { repo, prefix: "" } : null;
+  refreshStats();
+}
+
+function renderRepoFilter(overview) {
+  const holder = document.getElementById("repo-chips");
+  holder.innerHTML = "";
+  if (overview.kpis) return;  // already scoped; scope bar shows the repo
+  const active = s => s ? " active" : "";
+  const all = document.createElement("span");
+  all.className = "repo-chip" + (statsScope ? "" : " active");
+  all.innerHTML = `All repositories`;
+  all.title = "Aggregate both repositories";
+  all.addEventListener("click", () => setRepoScope(null));
+  holder.appendChild(all);
+  for (const r of overview.repos) {
+    const chip = document.createElement("span");
+    chip.className = "repo-chip" + (statsScope && statsScope.repo === r.repository ? " active" : "");
+    chip.innerHTML = `${r.repository}
+      <span class="muted">${fmt((r.coverage || {}).filesTracked ?? r.filesInGraph)} files</span>`;
+    chip.title = `Filter statistics to ${r.repository}`;
+    chip.addEventListener("click", () => setRepoScope(r.repository));
+    holder.appendChild(chip);
+  }
+}
+
+function setMetric(m) {
+  statsMetric = m;
+  document.getElementById("metric-files").classList.toggle("active", m === "files");
+  document.getElementById("metric-lines").classList.toggle("active", m === "lines");
+  tableSortKey = m === "files" ? "files" : "totalLines";
+  tableSortAsc = false;
+  renderKpis(lastOverview, catRowsCache, lastLocData);
+  renderChips();
+  rerenderStatsViews(lastLocTotals);
+  renderRepoFilter(lastOverview);
+}
+document.getElementById("metric-files").addEventListener("click", () => setMetric("files"));
+document.getElementById("metric-lines").addEventListener("click", () => setMetric("lines"));
+
+async function refreshStats() {
+  const q = statsScope
+    ? `?repo=${encodeURIComponent(statsScope.repo)}&prefix=${encodeURIComponent(statsScope.prefix)}`
+    : "";
+  const [overview, cats, loc] = await Promise.all([
+    api("/api/stats/overview" + q),
+    api("/api/stats/categories" + q),
+    api("/api/stats/loc" + q),
+  ]);
+  renderScopeBar(overview.scope);
+  renderRepoFilter(overview);
+  lastOverview = overview;
+  lastLocData = loc;
+  lastLocTotals = loc.totals;
+  renderKpis(overview, cats, loc);
+  catRowsCache = cats;
+  renderChips();
+  renderDonut(catRowsCache);
+  renderBars();
+  tableSortKey = statsMetric === "files" ? "files" : "totalLines";
+  renderTable(catRowsCache, loc.totals);
+  if (drillCategory) openDrilldown(drillCategory);  // re-scope open drill-down
+}
+
+function renderScopeBar(scope) {
+  const label = document.getElementById("stats-scope-label");
+  const crumb = document.getElementById("stats-scope-crumb");
+  const reset = document.getElementById("stats-scope-reset");
+  if (scope) {
+    label.textContent = scope.repo;
+    crumb.textContent = "/ " + (scope.prefix || "(repository root)");
+    reset.style.display = "inline-block";
+  } else {
+    label.textContent = "All repositories";
+    crumb.textContent = "";
+    reset.style.display = "none";
+  }
+}
+
+function renderKpis(overview, cats, locData) {
+  const el = document.getElementById("stats-kpis");
+  el.innerHTML = "";
+  const card = (v, l) =>
+    `<div class="kpi"><div class="v">${fmt(v)}</div><div class="l">${l}</div></div>`;
+  if (overview.kpis) {
+    const k = overview.kpis;
+    if (statsMetric === "files") {
+      el.innerHTML = card(k.tracked, "Tracked files") + card(k.deep, "Deep-indexed")
+        + card(k.inventoryOnly, "Inventory-only") + card(k.binaries, "Binaries");
+    } else {
+      el.innerHTML = card(k.totalLines, "Total lines") + card(k.codeLines, "Code lines")
+        + card(k.commentLines, "Comment lines") + card(k.blankLines, "Blank lines");
+    }
+  } else if (statsMetric === "lines" && locData) {
+    const byRepo = {};
+    for (const r of locData.rows) {
+      const a = byRepo[r.repository] = byRepo[r.repository] ||
+        { total: 0, code: 0 };
+      a.total += fmtOr0(r.totalLines);
+      a.code += fmtOr0(r.codeLines);
+    }
+    for (const [repo, a] of Object.entries(byRepo)) {
+      el.insertAdjacentHTML("beforeend",
+        card(a.total, repo + " · total lines") + card(a.code, repo + " · code lines"));
+    }
+  } else if (statsMetric === "lines" && locData) {
+    el.innerHTML = card(locData.totals.totalLines, "Total lines")
+      + card(locData.totals.codeLines, "Code lines")
+      + card(locData.totals.commentLines, "Comment lines")
+      + card(locData.totals.blankLines, "Blank lines");
+  } else {
+    // unscoped aggregate across repositories
+    let tracked = 0, deep = 0, untracked = 0, binaries = 0;
+    for (const r of overview.repos) {
+      const cov = r.coverage || {};
+      tracked += (cov.filesTracked ?? r.filesInGraph);
+      deep += r.deep;
+      untracked += fmtOr0(cov.untrackedFiles);
+      binaries += r.binaries;
+    }
+    el.innerHTML = card(tracked, "Tracked files") + card(deep, "Deep-indexed")
+      + card(tracked - deep, "Inventory-only") + card(binaries, "Binaries")
+      + card(untracked, "Untracked on disk");
+  }
+}
+
+function donutArc(cx, cy, r, a0, a1) {
+  const large = a1 - a0 > Math.PI ? 1 : 0;
+  const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+  const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+  return `M ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1}`;
+}
+
+function metricValue(row) {
+  return statsMetric === "files" ? row.files : fmtOr0(row.totalLines);
+}
+
+function renderDonut(rows) {
+  const holder = document.getElementById("stats-donut");
+  holder.innerHTML = "";
+  document.getElementById("donut-title").textContent =
+    (statsMetric === "files" ? "Files" : "Lines") + " by category";
+  rows = rows.filter(r => !catFilter.has(r.category));
+  const total = rows.reduce((a, r) => a + metricValue(r), 0);
+  if (!total) return;
+  const size = 190, cx = size / 2, cy = size / 2, r = 74;
+  let a = -Math.PI / 2;
+  let svg = `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"
+    role="img" aria-label="Files by category donut chart">`;
+  for (const row of rows.slice(0, 12)) {
+    const sweep = (metricValue(row) / total) * Math.PI * 2;
+    if (sweep > 0.002) {
+      svg += `<path class="clickable" data-cat="${row.category}"
+        d="${donutArc(cx, cy, r, a, a + sweep)} L ${cx} ${cy}"
+        fill="${catColor(row.category)}" opacity="0.85"/>`;
+    }
+    a += sweep;
+  }
+  svg += `<circle cx="${cx}" cy="${cy}" r="40" fill="rgba(7,11,20,.92)"></circle>
+    <text x="${cx}" y="${cy - 2}" text-anchor="middle" fill="#dbe4f5" font-size="15">${fmt(total)}</text>
+    <text x="${cx}" y="${cy + 14}" text-anchor="middle" fill="#8ba0c4" font-size="10">${statsMetric}</text></svg>`;
+  const legend = `<div style="display:flex;flex-direction:column;gap:3px;font-size:11px;flex:1;min-width:150px">` +
+    rows.slice(0, 14).map(row =>
+      `<div class="clickable" data-cat="${row.category}"
+        title="Show files in ${row.category}"><span class="sw" style="background:${catColor(row.category)}"></span>
+       ${row.category} <span style="color:var(--muted)">${fmt(metricValue(row))} ${statsMetric} · ${fmt(row.files)} files</span></div>`).join("") +
+    `</div>`;
+  holder.innerHTML = svg + legend;
+
+  // tooltips (hover) + drill-down (click/tap)
+  const detail = row => `<strong>${row.category}</strong><br>
+    ${fmt(metricValue(row))} ${statsMetric} (${(metricValue(row) / total * 100).toFixed(1)}%)<br>
+    <span class="muted">${fmt(row.files)} files · ${fmt(row.totalLines)} total lines · kind ${row.kind}</span><br>
+    <span class="muted">tap/click to see files</span>`;
+  const byCat = c => rows.find(r => r.category === c);
+  holder.querySelectorAll("[data-cat]").forEach(el => {
+    const row = byCat(el.dataset.cat);
+    if (!row) return;
+    el.addEventListener("mousemove", e => showTooltip(detail(row), e.clientX, e.clientY));
+    el.addEventListener("mouseleave", hideTooltip);
+    el.addEventListener("click", () => { hideTooltip(); openDrilldown(el.dataset.cat); });
+  });
+}
+
+function renderBars() {
+  const holder = document.getElementById("stats-bars");
+  holder.innerHTML = "";
+  document.getElementById("bars-title").textContent =
+    (statsMetric === "files" ? "Files" : "Lines of code") + " by category";
+  const rows = catRowsCache.filter(r => !catFilter.has(r.category));
+  if (!rows.length) return;
+  const metric = statsMetric === "lines" ? "loc" : "files";
+  const max = Math.max(...rows.map(metricValue), 1);
+  const top = rows.filter(r => metricValue(r) > 0).slice(0, 14);
+  for (const row of top) {
+    const value = metricValue(row);
+    const total = metric === "loc" ? (row.totalLines || 1) : 1;
+    const codePct = metric === "loc" ? (row.codeLines || 0) / total : 1;
+    const commentPct = metric === "loc" ? (row.commentLines || 0) / total : 0;
+    const blankPct = metric === "loc" ? (row.blankLines || 0) / total : 0;
+    holder.insertAdjacentHTML("beforeend", `
+      <div class="bar-row clickable" data-cat="${row.category}"
+        title="Show files in ${row.category} · ${fmt(metric === "loc" ? row.totalLines : row.files)} ${metric === "loc" ? "lines" : "files"}">
+        <div class="bar-label">${row.category}</div>
+        <div class="bar-track">
+          <div class="bar-seg" style="width:${codePct * 100}%;background:${catColor(row.category)}"></div>
+          ${metric === "loc" ? `
+          <div class="bar-seg" style="width:${commentPct * 100}%;background:#fbbf24;opacity:.75"></div>
+          <div class="bar-seg" style="width:${blankPct * 100}%;background:#8ba0c4;opacity:.5"></div>` : ""}
+        </div>
+        <div class="bar-val">${fmt(value)}</div>
+      </div>`);
+  }
+  holder.querySelectorAll("[data-cat]").forEach(el =>
+    el.addEventListener("click", () => openDrilldown(el.dataset.cat)));
+}
+
+let tableSortKey = "files", tableSortAsc = false;
+function renderTable(rows, locTotals) {
+  const table = document.getElementById("stats-table");
+  const cols = [
+    ["category", "Category", false], ["kind", "Kind", false],
+    ["files", "Files", true], ["bytes", "Bytes", true],
+    ["totalLines", "Total", true], ["codeLines", "Code", true],
+    ["commentLines", "Comment", true], ["blankLines", "Blank", true],
+  ];
+  rows = rows.filter(r => !catFilter.has(r.category));
+  const sorted = [...rows].sort((a, b) => {
+    const va = a[tableSortKey], vb = b[tableSortKey];
+    const cmp = typeof va === "number" ? va - vb : String(va).localeCompare(vb);
+    return tableSortAsc ? cmp : -cmp;
+  });
+  const head = cols.map(([k, label, num]) =>
+    `<th class="${num ? "num" : ""}" data-k="${k}">${label}${tableSortKey === k ? (tableSortAsc ? " ▲" : " ▼") : ""}</th>`).join("");
+  const body = sorted.map(r => `<tr class="clickable" data-cat="${r.category}" title="Show files in ${r.category}">
+    <td><span class="sw" style="background:${catColor(r.category)}"></span>${r.category}</td>
+    <td style="color:var(--muted)">${r.kind}</td>
+    <td class="num">${fmt(r.files)}</td><td class="num">${fmt(r.bytes)}</td>
+    <td class="num">${fmt(r.totalLines)}</td><td class="num">${fmt(r.codeLines)}</td>
+    <td class="num">${fmt(r.commentLines)}</td><td class="num">${fmt(r.blankLines)}</td>
+  </tr>`).join("");
+  // attach drill-down handlers after innerHTML is set (below)
+  const totals = locTotals || {
+    files: rows.reduce((a, r) => a + r.files, 0),
+    totalLines: rows.reduce((a, r) => a + fmtOr0(r.totalLines), 0),
+    codeLines: rows.reduce((a, r) => a + fmtOr0(r.codeLines), 0),
+    commentLines: rows.reduce((a, r) => a + fmtOr0(r.commentLines), 0),
+    blankLines: rows.reduce((a, r) => a + fmtOr0(r.blankLines), 0),
+  };
+  table.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>
+    <tfoot><tr class="total">
+      <td>Total</td><td></td><td class="num">${fmt(totals.files)}</td><td></td>
+      <td class="num">${fmt(totals.totalLines ?? 0)}</td>
+      <td class="num">${fmt(totals.codeLines ?? 0)}</td>
+      <td class="num">${fmt(totals.commentLines ?? 0)}</td>
+      <td class="num">${fmt(totals.blankLines ?? 0)}</td></tr></tfoot>`;
+  table.querySelectorAll("th").forEach(th => th.addEventListener("click", () => {
+    const k = th.dataset.k;
+    if (tableSortKey === k) tableSortAsc = !tableSortAsc;
+    else { tableSortKey = k; tableSortAsc = true; }
+    renderTable(catRowsCache, locTotals);
+  }));
+  table.querySelectorAll("tbody tr").forEach(tr =>
+    tr.addEventListener("click", () => openDrilldown(tr.dataset.cat)));
+}
+
+/* ---- category filter chips ---- */
+function renderChips() {
+  const holder = document.getElementById("cat-chips");
+  holder.innerHTML = "";
+  if (!catRowsCache.length) return;
+  const all = document.createElement("span");
+  all.className = "cat-chip" + (catFilter.size ? "" : " off");
+  all.innerHTML = `all ${catFilter.size ? "— reset filters" : ""}`;
+  all.style.opacity = catFilter.size ? "1" : "";
+  all.addEventListener("click", () => {
+    if (catFilter.size) { catFilter.clear(); rerenderStatsViews(); renderChips(); }
+  });
+  if (catFilter.size) { all.classList.remove("off"); all.style.fontWeight = "500"; }
+  holder.appendChild(all);
+  for (const r of catRowsCache) {
+    const chip = document.createElement("span");
+    const excluded = catFilter.has(r.category);
+    chip.className = "cat-chip" + (excluded ? " off" : "");
+    chip.innerHTML = `<span class="dot" style="background:${catColor(r.category)}"></span>
+      ${r.category} <span style="color:var(--muted)">${fmt(metricValue(r))}</span>`;
+    chip.title = "Toggle this category in charts and table";
+    chip.addEventListener("click", () => {
+      if (excluded) catFilter.delete(r.category); else catFilter.add(r.category);
+      renderChips();
+      rerenderStatsViews();
+    });
+    holder.appendChild(chip);
+  }
+}
+
+function rerenderStatsViews(locTotals) {
+  renderDonut(catRowsCache);
+  renderBars();
+  renderTable(catRowsCache, locTotals || null);
+}
+
+/* ---- floating tooltip (hover) ---- */
+function showTooltip(html, x, y) {
+  const tip = document.getElementById("stats-tooltip");
+  tip.innerHTML = html;
+  tip.style.display = "block";
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(window.innerWidth - w - 8, Math.max(8, x + 14)) + "px";
+  tip.style.top = Math.min(window.innerHeight - h - 8, Math.max(8, y - h - 10)) + "px";
+}
+function hideTooltip() {
+  document.getElementById("stats-tooltip").style.display = "none";
+}
+
+/* ---- drill-down: files inside one category ---- */
+async function openDrilldown(category) {
+  if (!category) return;
+  drillCategory = category;
+  const q = statsScope
+    ? `?repo=${encodeURIComponent(statsScope.repo)}&prefix=${encodeURIComponent(statsScope.prefix)}`
+    : "";
+  const data = await api(`/api/stats/files?category=${encodeURIComponent(category)}${q ? "&" + q.slice(1) : ""}`);
+  const panel = document.getElementById("drill-panel");
+  document.getElementById("drill-dot").style.background = catColor(category);
+  document.getElementById("drill-title").textContent = category;
+  document.getElementById("drill-sub").textContent =
+    `${fmt(data.total)} files${data.truncated ? " — showing first " + data.files.length : ""}` +
+    (statsScope ? ` · ${statsScope.repo}${statsScope.prefix ? "/" + statsScope.prefix : ""}` : " · all repositories");
+  const table = document.getElementById("drill-table");
+  table.innerHTML = `<thead><tr>
+      <th>Path</th><th class="num">Lines</th><th class="num">Code</th>
+      <th class="num">Bytes</th><th>Ext</th></tr></thead><tbody>` +
+    data.files.map(f => `<tr>
+      <td style="font-family:ui-monospace,monospace;font-size:11px">${esc(f.repository)}/${esc(f.path)}</td>
+      <td class="num">${fmt(f.totalLines)}</td><td class="num">${fmt(f.codeLines)}</td>
+      <td class="num">${fmt(f.bytes)}</td>
+      <td style="color:var(--muted)">${esc(f.extension || "")}</td></tr>`).join("") +
+    `</tbody>`;
+  panel.style.display = "block";
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+document.getElementById("drill-close").addEventListener("click", () => {
+  document.getElementById("drill-panel").style.display = "none";
+  drillCategory = null;
+});
+
+/* ---- stats directory tree ---- */
+async function loadStatsTreeRoot() {
+  const ul = document.getElementById("stats-tree-root");
+  ul.innerHTML = "";
+  const repos = await api("/api/root?mode=files");
+  for (const r of repos) {
+    ul.appendChild(statsTreeRow({
+      eid: `repo:${r.name}`, name: r.name, isDir: true, files: r.children,
+    }));
+  }
+}
+
+function statsTreeRow(node) {
+  const li = document.createElement("li");
+  const row = document.createElement("div");
+  row.className = "row"; row.dataset.eid = node.eid;
+  const chev = document.createElement("span");
+  chev.className = "chev"; chev.textContent = "▶";
+  const dot = document.createElement("span");
+  dot.className = "dot";
+  dot.style.background = node.isDir ? "var(--pkg)" : "var(--file)";
+  const name = document.createElement("span");
+  name.className = "name"; name.textContent = node.name; name.title = node.name;
+  row.append(chev, dot, name);
+  if (node.files != null) {
+    const count = document.createElement("span");
+    count.className = "count"; count.textContent = node.files;
+    row.appendChild(count);
+  }
+  li.appendChild(row);
+  const childUl = document.createElement("ul");
+  childUl.style.display = "none";
+  li.appendChild(childUl);
+
+  row.addEventListener("click", async () => {
+    document.querySelectorAll("#stats-tree-root .row.selected")
+      .forEach(r => r.classList.remove("selected"));
+    row.classList.add("selected");
+    // scope statistics
+    if (node.eid.startsWith("repo:")) statsScope = { repo: node.eid.slice(5), prefix: "" };
+    else if (node.eid.startsWith("dir:")) {
+      const rest = node.eid.slice(4);
+      const repo = rest.split(":", 1)[0];
+      statsScope = { repo, prefix: rest.slice(repo.length + 1) };
+    } else if (node.eid.startsWith("file:")) return;
+    refreshStats();
+    // expand lazily
+    if (node.isDir && childUl.style.display === "none" && !childUl.children.length) {
+      const kids = await api("/api/stats/tree/children?eid=" + encodeURIComponent(node.eid));
+      for (const k of kids.children) childUl.appendChild(statsTreeRow(k));
+      if (kids.truncated) childUl.insertAdjacentHTML("beforeend",
+        '<div class="hint">… showing first 500</div>');
+    }
+    childUl.style.display = node.isDir ? "block" : "none";
+    if (node.isDir) chev.classList.add("open");
+  });
+  return li;
+}
+
+/* viewport group + boot */
+(function boot() {
+  // radial gradients per label: lit-sphere orbs
+  const defs = svgEl("defs", {});
+  const gradientStops = [
+    ["0%", "#ffffff", 0.95], ["35%", "currentColor", 0.95], ["100%", "currentColor", 0.75],
+  ];
+  const labelsForGrad = Object.keys(LABEL_COLORS).concat(["other"]);
+  for (const label of labelsForGrad) {
+    const grad = svgEl("radialGradient", { id: `grad-${label}`, cx: "35%", cy: "30%", r: "75%" });
+    for (const [offset, color, opacity] of gradientStops) {
+      grad.appendChild(svgEl("stop", {
+        offset, "stop-color": color === "currentColor" ? colorFor(label) : color,
+        "stop-opacity": opacity,
+      }));
+    }
+    defs.appendChild(grad);
+  }
+  svg.appendChild(defs);
+
+  // starfield: two layers for parallax depth
+  function starLayer(id, count, rMin, rMax, baseOpacity) {
+    const g = svgEl("g", { id });
+    for (let i = 0; i < count; i++) {
+      const c = svgEl("circle", {
+        cx: (Math.random() * 2600 - 1300).toFixed(1),
+        cy: (Math.random() * 1700 - 850).toFixed(1),
+        r: (rMin + Math.random() * (rMax - rMin)).toFixed(2),
+        class: "star" + (Math.random() < 0.22 ? " tw" : ""),
+        opacity: (baseOpacity * (0.5 + Math.random() * 0.7)).toFixed(2),
+      });
+      if (c.classList.contains("tw")) c.style.animationDelay = (Math.random() * 3).toFixed(2) + "s";
+      g.appendChild(c);
+    }
+    return g;
+  }
+  svg.appendChild(starLayer("stars-far", 110, 0.5, 1.1, 0.5));
+  svg.appendChild(starLayer("stars-near", 45, 1.0, 1.9, 0.8));
+
+  const vp = svgEl("g", { id: "viewport" });
+  svg.appendChild(vp);
+  window.addEventListener("resize", applyView);
+  toggleBtn.classList.add("hidden-when-open");
+  loadRootOverview().catch(err => toast("Failed to load: " + err.message));
+})();
+</script>
+</body>
+</html>

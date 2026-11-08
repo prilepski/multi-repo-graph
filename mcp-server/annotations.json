@@ -1,0 +1,7 @@
+{
+  "__smoke__": {
+    "summary": "protocol smoke",
+    "prd": "smoke",
+    "classification": "SMOKE"
+  }
+}
