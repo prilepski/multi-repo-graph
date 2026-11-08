@@ -1,0 +1,12 @@
+{
+  "name": "mrg-nodejs",
+  "private": true,
+  "type": "module",
+  "description": "Node side of the multi-repo-graph pipeline: codegraph indexing (stage 2) and bulk export (stage 3)",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "@colbymchenry/codegraph": "1.6.2"
+  }
+}

@@ -116,8 +116,7 @@ def load_manifest(path: Path) -> Manifest:
             store_repo = store_raw.get("repo")
             if not isinstance(store_repo, str) or store_repo.count("/") != 1:
                 errors.append("indexStore: 'repo' must be 'owner/name'")
-            if errors_coming := [e for e in errors if e.startswith("indexStore")]:
-                pass  # collected below anyway
+                store_repo = store_repo if isinstance(store_repo, str) else ""
             index_store = IndexStoreSpec(
                 provider=provider,
                 repo=store_repo or "",
@@ -179,9 +178,11 @@ def ensure_repo(spec: RepoSpec, force_clean: bool = False) -> RepoReady:
             raise ManifestError(f"{spec.name}: path missing and no cloneUrl")
         parent = spec.path.parent
         parent.mkdir(parents=True, exist_ok=True)
-        cmd = ["git", "clone", spec.clone_url, str(spec.path)]
+        cmd = ["git", "clone"]
         if spec.shallow:
-            cmd.insert(2, "--depth", "1") if False else cmd[2:2] = ["--depth", "1"]
+            cmd.append("--depth")
+            cmd.append("1")
+        cmd += [spec.clone_url, str(spec.path)]
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
             raise ManifestError(f"{spec.name}: clone failed: {proc.stderr.strip()[:500]}")
