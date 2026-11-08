@@ -11,6 +11,13 @@ Copy-and-enhance successor of **java-graph** (pipeline skeleton, portfolio
 schema, and MCP/viewer consumers originate there — see
 `docs/java-graph-references.md`).
 
+**Status: implemented and verified.** First end-to-end run (2026-11-08):
+thingsboard + dolphinscheduler, 2.55M LOC total — every count metric OK,
+2,000/2,000 sampled edge checks passed, ~244 MB of artifacts published to the
+local index store; the unmodified MFLens MCP backend queries the resulting
+graph (search, source reads via `:File.sha256`, `resolvedTo` call chains)
+across both repos. 39 offline + 3 Neo4j-integration tests.
+
 ## Layout
 
 ```

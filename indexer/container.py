@@ -87,24 +87,35 @@ def ensure_neo4j_running(engine: str, bolt_port: int,
 def dump_database(engine: str, dest_dir: Path,
                   bolt_port: int, password: str, neo4j_module: Any) -> Path:
     """Dump the `neo4j` database to dest_dir/neo4j.dump (stage 6 input).
-    Stops the DB inside the container (neo4j-admin requires it), dumps to
-    /dumps, copies out, restarts, waits for Bolt again."""
+
+    neo4j-admin requires the DB stopped — and in the neo4j image the server
+    IS the container's main process, so `docker exec neo4j stop` kills the
+    whole container (exit 137). Instead: docker stop, dump through a helper
+    container (--volumes-from for /data, dest_dir bind-mounted at /dumps so
+    the dump lands on the host directly), docker start, wait for Bolt."""
     name = NEO4J_CONTAINER_NAME
+    dest_dir = dest_dir.resolve()  # bind mounts need absolute paths
     dest_dir.mkdir(parents=True, exist_ok=True)
     dump_path = dest_dir / "neo4j.dump"
     if dump_path.exists():
         dump_path.unlink()
 
-    log.info("[*] Dumping Neo4j database (stops the DB inside the container)...")
-    _docker(engine, "exec", name, "neo4j", "stop")
+    log.info("[*] Dumping Neo4j database (container stopped for the dump)...")
+    subprocess.run([engine, "stop", name], check=True, capture_output=True)
     try:
-        _docker(engine, "exec", name, "rm", "-rf", "/dumps")
-        _docker(engine, "exec", name, "neo4j-admin", "database", "dump", "neo4j",
-                "--to-path=/dumps", "--overwrite-destination")
-        _docker(engine, "cp", f"{name}:/dumps/neo4j.dump", str(dump_path))
+        res = subprocess.run(
+            [engine, "run", "--rm", "--volumes-from", name,
+             "-v", f"{dest_dir}:/dumps", NEO4J_IMAGE,
+             "neo4j-admin", "database", "dump", "neo4j",
+             "--to-path=/dumps", "--overwrite-destination"],
+            capture_output=True, text=True)
+        if res.returncode != 0:
+            raise RuntimeError(
+                f"neo4j-admin dump failed ({res.returncode}): "
+                f"{res.stderr.strip()[-500:]}")
     finally:
-        _docker(engine, "restart", name)
-        ensure_neo4j_running(engine, bolt_port, 0, password, neo4j_module)
+        subprocess.run([engine, "start", name], check=True, capture_output=True)
+        ensure_neo4j_running(engine, bolt_port, None, password, neo4j_module)
     if not dump_path.exists() or dump_path.stat().st_size == 0:
         raise RuntimeError(f"neo4j dump did not land at {dump_path}")
     log.info("  [+] Dump written: %s (%d bytes)", dump_path, dump_path.stat().st_size)

@@ -1,8 +1,11 @@
 # Design: multi-repo-indexer
 
-Status: **seeded design — not implemented.** Rev 1, seeded 2026-11-08 from the
-java-graph → codegraph evaluation conversation. Decisions D1–D7 are settled;
-open items are tracked in §9.
+Status: **implemented — first verified end-to-end run 2026-11-08** (both
+baseline repos: 2.55M LOC, all count metrics OK, 2,000/2,000 sampled edges,
+artifacts published to the local index store; GitHub mode exercised via
+`--publish-dry-run`). Rev 1 seeded 2026-11-08 from the java-graph → codegraph
+evaluation conversation; implementation lives in `indexer/` of this repo.
+Decisions D1–D7 are settled; open items are tracked in §9.
 
 ## 1. Purpose
 
@@ -261,7 +264,7 @@ real run; everything below is then extrapolated ×~100.
 
 | # | Item | Blocked by |
 |---|---|---|
-| O1 | Bulk API existence/shape | spike `verification-bulk-api.md` |
+| O1 | ~~Bulk API existence/shape~~ **resolved** | bulk API confirmed + used (see `verification-bulk-api.md` Findings) |
 | O2 | codegraph schema stability across `upgrade` | spike + first pinned version |
 | O3 | Artifact sizes at 100M LOC → LFS quota, retention, chunking | first full run measurements |
 | O4 | Neo4j at 20–60M nodes on community edition | baseline ×10 run |

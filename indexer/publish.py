@@ -91,7 +91,8 @@ def _git(store: IndexStoreSpec, workdir: Path, *args: str
 
 def publish_github(run_dir: Path, store: IndexStoreSpec, run_id: str,
                    commit_message: str, keep_last: int, dry_run: bool) -> bool:
-    """Returns True if pushed (False in dry-run). Raises on failure."""
+    """Returns True if pushed (False in dry-run). Raises on failure.
+    Handles a brand-new (empty, unborn-HEAD) store repo."""
     workdir = _work_dir(store)
     url = f"https://github.com/{store.repo}.git"
 
@@ -102,13 +103,18 @@ def publish_github(run_dir: Path, store: IndexStoreSpec, run_id: str,
         if auth.returncode != 0:
             log.warning("  [!] gh auth setup-git failed (push may fail): %s",
                         auth.stderr.strip()[:200])
-        res = _run(["git", "clone", "--branch", store.branch, url, "."],
-                   cwd=workdir, env_extra={"GIT_LFS_SKIP_SMUDGE": "1"})
+        # no --branch: an empty repo has no branches to name
+        res = _run(["git", "clone", url, "."], cwd=workdir,
+                   env_extra={"GIT_LFS_SKIP_SMUDGE": "1"})
         if res.returncode != 0:
             raise RuntimeError(f"git clone of {url} failed: {res.stderr.strip()[:500]}")
+        # unborn HEAD (fresh repo) -> create the branch locally
+        if _git(store, workdir, "rev-parse", "--verify", "HEAD").returncode != 0:
+            _git(store, workdir, "checkout", "-B", store.branch)
     else:
-        res = _git(store, workdir, "fetch", "origin", store.branch)
-        if res.returncode == 0:
+        _git(store, workdir, "fetch", "origin")
+        if _git(store, workdir, "rev-parse", "--verify",
+                f"origin/{store.branch}").returncode == 0:
             _git(store, workdir, "reset", "--hard", f"origin/{store.branch}")
 
     # LFS attributes for the big artifacts (GitHub rejects >100 MB blobs)
@@ -138,7 +144,9 @@ def publish_github(run_dir: Path, store: IndexStoreSpec, run_id: str,
         if removed:
             log.info("    (would prune: %s)", ", ".join(removed))
         # roll back so the next run rebuilds from the remote state
-        _git(store, workdir, "reset", "--hard", f"origin/{store.branch}")
+        if _git(store, workdir, "rev-parse", "--verify",
+                f"origin/{store.branch}").returncode == 0:
+            _git(store, workdir, "reset", "--hard", f"origin/{store.branch}")
         return False
 
     res = _git(store, workdir, "push", "origin", store.branch)

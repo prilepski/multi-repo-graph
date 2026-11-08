@@ -353,7 +353,7 @@ def main() -> None:
                 if args.local_store_dir:
                     store_root = Path(args.local_store_dir)
                 else:
-                    parents = {r.spec.path.parent.resolve() for r in manifest.repos}
+                    parents = {r.path.parent.resolve() for r in manifest.repos}
                     common = parents.pop() if len(parents) == 1 else Path(".")
                     store_root = common / "index-store"
                 publish.publish_local(run_dir, store_root, run_id, args.keep_last)

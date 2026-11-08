@@ -23,13 +23,14 @@ def test_fingerprint_algorithm_pinned(tmp_path):
         CREATE TRIGGER nodes_ai AFTER INSERT ON nodes BEGIN
             INSERT INTO edges (id, source) VALUES ('x', 'y'); END;
     """)
-    # sha256 over objects in sqlite_master ORDER BY type,name:
-    # index < table < trigger
+    # sha256 over objects in sqlite_master ORDER BY type,name
+    # (index < table < trigger): non-tables as "type:name", tables as
+    # "name(col,...)"
     import hashlib
-    expected_input = ("idx_edges_source:index\n"
+    expected_input = ("index:idx_edges_source\n"
                       "edges(id,source)\n"
                       "nodes(id,kind)\n"
-                      "nodes_ai:trigger")
+                      "trigger:nodes_ai")
     assert exporter.schema_fingerprint(db) == hashlib.sha256(
         expected_input.encode()).hexdigest()
 

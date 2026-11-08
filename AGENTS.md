@@ -1,8 +1,8 @@
 # AGENTS.md — multi-repo-graph
 
 Batch indexer: codegraph extraction → java-graph Neo4j schema →
-timestamp-versioned artifacts in an index store. **Implementing — design in
-`docs/design.md`, seeded from the multi-repo-indexer design docs.**
+timestamp-versioned artifacts in an index store. **Implemented — first
+verified end-to-end run 2026-11-08; design in `docs/design.md`.**
 
 This project is the copy-and-enhance successor of **java-graph** (never
 "relocated" as java-graph — it was copied here and is being enhanced under a

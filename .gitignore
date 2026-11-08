@@ -11,3 +11,5 @@ index-store/
 *.dump
 *.dump.zst
 *.db
+logs/
+.publish-work/

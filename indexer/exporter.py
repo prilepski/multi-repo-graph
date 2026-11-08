@@ -100,6 +100,9 @@ def scan_file_rows(repo_name: str, repo_path: Path,
     line count (binary files: totalLines None). Single pass per file."""
     for rel in tracked if tracked is not None else git_tracked_files(repo_path):
         path = repo_path / rel
+        if not path.is_file():
+            # submodule gitlinks and deleted-in-worktree entries: not files
+            continue
         sha = hashlib.sha256()
         lines = 0
         is_text = True
