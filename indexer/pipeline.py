@@ -310,7 +310,7 @@ def main() -> None:
                 continue
             detected = integrations_mod.detect_integrations(
                 ready.spec.path, ready.spec.name, repo_names,
-                manifest_mod.git_tracked_files(ready.spec.path))
+                exporter.git_tracked_files(ready.spec.path))
             ingest.ingest_integrations(driver, ready.spec.name, detected)
             for report in repo_reports:
                 if report["name"] == ready.spec.name:
