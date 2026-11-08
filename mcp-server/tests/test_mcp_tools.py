@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Tests for the MFLens-compatible MCP server (offline: FakeBackend)."""
 
 import asyncio

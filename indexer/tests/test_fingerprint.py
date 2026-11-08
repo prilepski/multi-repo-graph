@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Fingerprint guard tests: the algorithm is pinned to what the O1 spike
 measured (docs/verification-bulk-api.md) — tables hash as name(cols),
 other objects as type:name. A mismatch here means the guard itself drifted."""

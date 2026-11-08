@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Stage 0 (validate manifest) and stage 1 (ensure clones) — design.md §2/§3.
 
 Manifest format (see ../manifest.example.json):
@@ -57,13 +59,22 @@ class Manifest:
 
 
 def load_manifest(path: Path) -> Manifest:
-    """Load + validate the manifest; collects ALL problems before failing."""
+    """Load + validate the manifest file (legacy direct-manifest entry;
+    the pipeline now goes through workspace.load_workspace)."""
     if not path.exists():
         raise ManifestError(f"manifest '{path}' not found")
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         raise ManifestError(f"manifest '{path}' is not valid JSON: {e}") from e
+    return load_manifest_dict(raw)
+
+
+def load_manifest_dict(raw: Any) -> Manifest:
+    """Validate an already-parsed {"repos": [...], "indexStore"?: {...]}
+    payload; collects ALL problems before failing."""
+    if not isinstance(raw, dict):
+        raise ManifestError(f"manifest: expected a JSON object")
 
     errors: List[str] = []
     if not isinstance(raw, dict):

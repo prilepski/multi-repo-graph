@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Stage 0/1 unit tests: manifest validation + clone ensurement +
 clean-tree enforcement (design.md §3)."""
 

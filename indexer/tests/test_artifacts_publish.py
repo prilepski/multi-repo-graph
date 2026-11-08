@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Stage 6/7 unit tests: run-manifest writer, retention pruning, local
 publish end-to-end against a fake store dir (design.md §4, §8)."""
 

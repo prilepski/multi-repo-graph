@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 // O1 spike: full enumeration via the bulk API (QueryBuilder) on a real index.
 // Measures wall time + RSS for: nodes (streaming iterator, per kind),
 // edges (getOutgoingEdgesFrom over id batches), files. Prints counts to

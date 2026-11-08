@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Stage 3 mapping tests over the real codegraph-indexed fixture
 (docs/design.md §5 mapping table, each rule asserted once)."""
 

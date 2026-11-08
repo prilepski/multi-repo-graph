@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """fanout.mjs contract tests: multi-repo merge, repo tagging, per-repo
 failure isolation, repo filtering."""
 

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """MCP tool-level tests for the portfolio wrapper server: real fanout.mjs
 subprocess over the two fixture repos, called through the FastMCP tool
 surface (same call/unwrap idiom as mcp-server's offline suite)."""

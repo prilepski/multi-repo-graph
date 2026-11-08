@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """MFLens-compatible MCP server over the Java code graph.
 
 Implements all 60 tools from the MFLens tool inventory

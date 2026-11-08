@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Fixtures for the codegraph portfolio wrapper: TWO codegraph-indexed repos
 (the multi-repo fan-out is the thing under test)."""
 

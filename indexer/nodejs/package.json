@@ -8,5 +8,7 @@
   },
   "dependencies": {
     "@colbymchenry/codegraph": "1.6.2"
-  }
+  },
+  "license": "MIT",
+  "author": "Dmitri Prilepski <dmitri@vidukate.ai>"
 }

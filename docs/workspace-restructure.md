@@ -1,9 +1,13 @@
-# Design: tool/workspace repo split — FOR REVIEW
+# Design: tool/workspace repo split
 
-Status: **draft for review, not implemented.** Rev 0, 2026-11-08.
-Proposes restructuring around two repo types and supersedes parts of
-design.md §3/§4 (manifest location, index-store) and pulls the §10
-"snapshot-to-local runner" into scope as the workspace bootstrap.
+Status: **approved + implemented 2026-11-08.** Decisions from review:
+A keep `multi-repo-graph`; B `codegraph-workspace`; C workspace always a git
+repo; D runtime deployed as source copies (`runtime/VERSION` pins the tool
+commit); F `repos/` clones live inside the workspace (gitignored). E (seed
+`multi-repo-index-store` as the first workspace) remains open — the first
+workspace was created locally at `~/projects/codegraph-workspace`. Bootstrap
+scripts are thin `sh`/`ps1` shims that only locate a Python; all logic is
+Python (`runtime/scripts/up.py`, `down.py`).
 
 ## 0. Goals
 
@@ -172,16 +176,17 @@ are untouched.
 4. Re-run the pipeline against the workspace → produces run #1 + runtime in
    the new layout; verify with `up.sh` + MFLens/viewer smoke.
 
-## 9. Decisions to confirm (review)
+## 9. Decisions (resolved in review)
 
-| # | Question | Recommendation |
+| # | Question | Decision |
 |---|---|---|
-| A | Tool repo name: keep `multi-repo-graph` vs rename `multi-repo-indexer` | **keep `multi-repo-graph`** — established, and "indexer" now names only stage-tooling, not the whole product |
+| A | Tool repo name | **keep `multi-repo-graph`** |
 | B | Workspace repo name | **`codegraph-workspace`** |
-| C | Is the workspace always a git repo, even purely-local use? | **yes** — one publish code path, free history/rollback |
-| D | Deploy MCP/viewer as **source copies** (v0) vs packaged artifacts (wheel/npm bundle) | **source copies now**, packaging later; `runtime/VERSION` makes either switchable |
-| E | Fate of GitHub `multi-repo-index-store` | seed it as the first workspace (add workspace.json + runtime on next run) |
-| F | `repos/` clones inside the workspace (ignored) vs a separate cache dir | **inside** — `up.sh` reuses them for SHA-pinned checkouts |
+| C | Workspace always a git repo? | **yes** — one publish path, free history/rollback |
+| D | Runtime as source copies vs packaged artifacts | **source copies**, `runtime/VERSION` pins tool commit |
+| E | Fate of GitHub `multi-repo-index-store` | open — first workspace created locally; store can be seeded later |
+| F | `repos/` clones location | **inside the workspace** (gitignored) |
+| G | Bootstrap scripts | **thin sh/ps1 shims locate a Python; all logic in Python** (up.py/down.py) — one cross-platform implementation |
 
 ## 10. Forward compatibility (incremental updates, D2 future)
 

@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""multi-repo-graph batch pipeline — stages 0-7 (docs/design.md §2).
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
+"""multi-repo-graph batch pipeline — stages 0-8 (docs/design.md §2,
+docs/workspace-restructure.md).
 
-  0 validate manifest          4 Neo4j ingest (single writer)
+  0 validate workspace         4 Neo4j ingest (single writer)
   1 ensure clones              5 verify (counts + sampled edges)
   2 codegraph index (pool)     6 artifacts (dump/codegraph zstd, manifests)
-  3 export -> portfolio rows   7 publish (local folder | GitHub store)
+  3 export -> portfolio rows   7 publish (commit into the workspace repo)
+                               8 deploy runtime (viewer + MCPs, committed)
 
-Exit code 0 only if every repo indexed, exported, ingested, verified, and
-published cleanly; partial runs still write artifacts + summary with explicit
-failure markers but fail the run (design.md §2).
+Runs OUT OF a tool-repo checkout, targets a codegraph-workspace; the tool
+repo never receives run data. Exit code 0 only if every repo indexed,
+exported, ingested, verified, and published cleanly; partial runs still
+write artifacts + summary with explicit failure markers but fail the run.
 
 Usage:
-  python -m indexer.pipeline --manifest manifest.json [--force-clean]
-                             [--publish-dry-run] [--keep-last 3] ...
+  python -m indexer.pipeline --workspace /path/to/codegraph-workspace
+                             [--force-clean] [--publish-dry-run]
 """
 
 import argparse
@@ -29,8 +34,9 @@ from typing import Any, Dict, List
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from indexer import artifacts as art
-from indexer import container, exporter, ingest, publish, verify
+from indexer import container, deploy, exporter, ingest, publish, verify
 from indexer import manifest as manifest_mod
+from indexer import workspace as workspace_mod
 from indexer.manifest import ManifestError
 
 log = logging.getLogger("indexer.pipeline")
@@ -106,47 +112,43 @@ def run_stage2(manifest_paths: List[Dict[str, str]],
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="multi-repo-graph: codegraph -> Neo4j portfolio -> artifacts")
-    parser.add_argument("--manifest", default="manifest.json")
+        description="multi-repo-graph: codegraph -> Neo4j portfolio -> workspace")
+    parser.add_argument("--workspace", required=True,
+                        help="codegraph-workspace path (or git URL)")
     parser.add_argument("--engine", default="docker",
                         help="container engine (default: docker)")
-    parser.add_argument("--bolt-port", type=int,
-                        default=container.DEFAULT_BOLT_PORT)
-    parser.add_argument("--http-port", type=int,
-                        default=container.DEFAULT_HTTP_PORT)
-    parser.add_argument("--neo4j-password", default=container.DEFAULT_PASSWORD)
-    parser.add_argument("--log-dir", default="logs")
     parser.add_argument("--force-clean", action="store_true",
                         help="git-clean untracked build residue instead of refusing")
     parser.add_argument("--publish-dry-run", action="store_true",
-                        help="stage 7 GitHub mode: build the commit, push nothing")
-    parser.add_argument("--keep-last", type=int, default=3,
-                        help="retention: run dirs kept in the store (default 3)")
+                        help="build the workspace commit but push nothing")
     parser.add_argument("--concurrency", type=int, default=None,
                         help="stage 2 worker pool size (default min(4, CPUs))")
-    parser.add_argument("--local-store-dir", default=None,
-                        help="override the local index-store directory")
     args = parser.parse_args()
 
     started = datetime.now(timezone.utc)
     run_id = art.run_id_for(started)
-    log_path = setup_logging(Path(args.log_dir))
-    log.info("[*] Run %s started. Log file: %s", run_id, log_path)
 
     neo4j = ensure_python_deps()
 
-    # ---- stage 0: manifest -------------------------------------------------
+    # ---- stage 0: workspace --------------------------------------------------
     try:
-        manifest = manifest_mod.load_manifest(Path(args.manifest))
-    except ManifestError as e:
+        ws_root = workspace_mod.resolve_workspace_arg(args.workspace)
+        ws = workspace_mod.ensure_workspace(ws_root)
+    except (ManifestError, RuntimeError) as e:
         sys.exit(f"[-] Fatal: {e}")
-    log.info("[*] Stage 0: manifest OK — %d repo(s): %s", len(manifest.repos),
-             ", ".join(r.name for r in manifest.repos))
+    log_path = setup_logging(ws.logs_dir)
+    log.info("[*] Run %s started. Log file: %s", run_id, log_path)
+    log.info("[*] Stage 0: workspace %s — %d repo(s): %s", ws.root,
+             len(ws.repos), ", ".join(r.name for r in ws.repos))
+    bolt_port = ws.settings.neo4j_bolt_port
+    http_port = ws.settings.neo4j_http_port
+    neo4j_password = ws.settings.neo4j_password
 
     # ---- stage 1: ensure clones (clean-tree guard) --------------------------
     log.info("[*] Stage 1: ensuring clones...")
     try:
-        readys = manifest_mod.ensure_all(manifest, force_clean=args.force_clean)
+        readys = manifest_mod.ensure_all(
+            manifest_mod.Manifest(repos=ws.repos), force_clean=args.force_clean)
     except ManifestError as e:
         sys.exit(f"[-] Fatal: {e}")
     for ready in readys:
@@ -200,18 +202,19 @@ def main() -> None:
 
     # ---- container + schema -------------------------------------------------
     container.check_prerequisites(args.engine)
-    container.ensure_neo4j_running(args.engine, args.bolt_port, args.http_port,
-                                   args.neo4j_password, neo4j)
-    uri = f"bolt://localhost:{args.bolt_port}"
+    container.ensure_neo4j_running(args.engine, bolt_port, http_port,
+                                   neo4j_password, neo4j,
+                                   ws.settings.neo4j_container)
+    uri = f"bolt://localhost:{bolt_port}"
 
     # ---- stages 3-5 per repo, single Neo4j writer ---------------------------
     repo_reports: List[Dict[str, Any]] = []
-    run_dir = Path(args.log_dir) / "runs" / run_id
-    artifacts_builder = art.RunArtifacts(Path(args.log_dir), run_id)
+    run_dir = ws.logs_dir / "runs" / run_id
+    artifacts_builder = art.RunArtifacts(ws.logs_dir, run_id)
     manifest_repos: List[Dict[str, Any]] = []
     overall_ok = stage2_ok
 
-    with neo4j.GraphDatabase.driver(uri, auth=("neo4j", args.neo4j_password)) as driver:
+    with neo4j.GraphDatabase.driver(uri, auth=("neo4j", neo4j_password)) as driver:
         ingest.init_neo4j_schema(driver)
         for ready in readys:
             name = ready.spec.name
@@ -293,8 +296,8 @@ def main() -> None:
         if overall_ok:
             try:
                 dump = container.dump_database(
-                    args.engine, artifacts_builder.neo4j_dir, args.bolt_port,
-                    args.neo4j_password, neo4j)
+                    args.engine, artifacts_builder.neo4j_dir, bolt_port,
+                    neo4j_password, neo4j, ws.settings.neo4j_container)
                 neo4j_artifact = artifacts_builder.stage_neo4j_dump(dump)
             except Exception as e:  # noqa: BLE001
                 log.error("[-] Neo4j dump failed: %s", e)
@@ -325,11 +328,9 @@ def main() -> None:
             "started_utc": started.isoformat(),
             "finished_utc": finished.isoformat(),
             "duration_seconds": round((finished - started).total_seconds(), 1),
-            "manifest": args.manifest,
+            "workspace": str(ws.root),
             "log_file": str(log_path),
             "neo4j_uri": uri,
-            "indexStore": (manifest.index_store.repo
-                           if manifest.index_store else "local"),
         },
         "totals_extracted": totals,
         "repos": repo_reports,
@@ -338,25 +339,39 @@ def main() -> None:
     }
     artifacts_builder.write_summary(summary)
 
-    # ---- stage 7: publish -----------------------------------------------------
+    # batch cleanliness: the dump is the artifact; free the ports for `up.py`
+    try:
+        container.stop_container(args.engine, ws.settings.neo4j_container)
+    except Exception as e:  # noqa: BLE001 - never mask the run result
+        log.warning("[!] could not stop ingest container: %s", e)
+
+    # ---- stages 7+8: deploy runtime, publish into the workspace repo ---------
     if overall_ok:
-        log.info("[*] Stage 7: publishing...")
+        log.info("[*] Stage 8: deploying runtime...")
+        try:
+            deployed = deploy.deploy_runtime(ws.root)
+            log.info("  [+] runtime @ tool commit %s (%d file(s) refreshed)",
+                     deployed["version"]["toolCommit"],
+                     len(deployed["copied"]))
+        except Exception as e:  # noqa: BLE001
+            log.error("[-] Runtime deploy failed: %s", e)
+            overall_ok = False
+
+        log.info("[*] Stage 7: publishing into workspace %s", ws.root)
         total_loc = sum(r.get("loc") or 0 for r in parsed)
         commit_msg = (f"index-run: {run_id} "
                       f"({', '.join(r['name'] for r in parsed)}, {total_loc:,} LOC)")
         try:
-            if manifest.index_store:
-                publish.publish_github(run_dir, manifest.index_store, run_id,
-                                       commit_msg, args.keep_last,
-                                       dry_run=args.publish_dry_run)
-            else:
-                if args.local_store_dir:
-                    store_root = Path(args.local_store_dir)
-                else:
-                    parents = {r.path.parent.resolve() for r in manifest.repos}
-                    common = parents.pop() if len(parents) == 1 else Path(".")
-                    store_root = common / "index-store"
-                publish.publish_local(run_dir, store_root, run_id, args.keep_last)
+            result = publish.publish_workspace(
+                run_dir, ws.root, run_id, commit_msg,
+                keep_last=ws.settings.keep_last,
+                push=ws.settings.remote_push, dry_run=args.publish_dry_run)
+            for line in result["log"].splitlines()[:6]:
+                log.info("    %s", line)
+            if result["pruned"]:
+                log.info("    pruned: %s", ", ".join(result["pruned"]))
+            if args.publish_dry_run:
+                log.info("    DRY RUN — commit kept locally, nothing pushed")
         except Exception as e:  # noqa: BLE001
             log.error("[-] Publish failed: %s", e)
             overall_ok = False

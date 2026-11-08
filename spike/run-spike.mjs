@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 // O1 spike: index a repo with the pinned codegraph, time it, dump stats +
 // runtime API surface. Usage: node run-spike.mjs <projectRoot>
 import pkg from '@colbymchenry/codegraph';

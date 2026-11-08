@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Protocol-level smoke test: spawn the deployed MCP server (stdio) and call
 ALL 60 tools through the MCP protocol, exactly as ZCode will.
 

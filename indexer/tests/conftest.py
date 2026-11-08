@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Shared fixtures: a tiny git repo (java + ts) that gets a REAL codegraph
 index — exercises the actual mapping path offline (design.md §8)."""
 

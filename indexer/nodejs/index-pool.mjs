@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 // Stage 2 parent: worker pool over repos — one child Node process per repo,
 // default concurrency min(4, CPUs) (design.md §7). Usage:
 //   node index-pool.mjs <configJsonPath>

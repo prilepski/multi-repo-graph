@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Multi-repo MFLens integration tests (NEO4J_TEST_URI gated).
 
 The java-graph suite (test_mcp_tools.py, offline FakeBackend) validates the
@@ -39,6 +41,12 @@ from backend import Neo4jBackend      # noqa: E402
 NEO4J_TEST_URI = os.environ.get("NEO4J_TEST_URI")
 NEO4J_TEST_PASSWORD = os.environ.get("NEO4J_TEST_PASSWORD", "graphpassword123")
 NODEJS_DIR = PROJECT_ROOT / "indexer" / "nodejs"
+
+def _ensure_container_up():
+    """docker-start bootstrap (pipeline stops its container after dumping)."""
+    import subprocess
+    subprocess.run(["docker", "start", "mrg-neo4j-instance"], capture_output=True)
+
 
 pytestmark = pytest.mark.skipif(
     not NEO4J_TEST_URI, reason="NEO4J_TEST_URI not set (integration test)")
@@ -134,6 +142,7 @@ def portfolio(two_repos, names):
     import neo4j as neo4j_mod
     (repo_a, repo_b) = two_repos
     name_a, name_b = names
+    _ensure_container_up()
     driver = neo4j_mod.GraphDatabase.driver(
         NEO4J_TEST_URI, auth=("neo4j", NEO4J_TEST_PASSWORD))
     driver.verify_connectivity()

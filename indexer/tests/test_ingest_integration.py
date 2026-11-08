@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Neo4j integration test (NEO4J_TEST_URI gated, design.md §8): fixture
 export -> ingest TWICE (idempotency) -> graph shape, counts, CALLS grouping,
 external synthesis. Run against the pipeline's own container:
@@ -20,9 +22,28 @@ pytestmark = pytest.mark.skipif(
     not NEO4J_TEST_URI, reason="NEO4J_TEST_URI not set (integration test)")
 
 
+def _ensure_container_up(neo4j):
+    """docker-start bootstrap: the pipeline stops its ingest container after
+    dumping; integration tests bring it back (no-op when already running)."""
+    import subprocess
+    import time
+    subprocess.run(["docker", "start", "mrg-neo4j-instance"], capture_output=True)
+    for _ in range(30):
+        try:
+            d = neo4j.GraphDatabase.driver(
+                NEO4J_TEST_URI, auth=("neo4j", NEO4J_TEST_PASSWORD))
+            d.verify_connectivity()
+            d.close()
+            return
+        except Exception:
+            time.sleep(2)
+    pytest.skip(f"Neo4j not reachable at {NEO4J_TEST_URI}")
+
+
 @pytest.fixture()
 def driver():
     neo4j = pytest.importorskip("neo4j")
+    _ensure_container_up(neo4j)
     d = neo4j.GraphDatabase.driver(
         NEO4J_TEST_URI, auth=("neo4j", NEO4J_TEST_PASSWORD))
     try:

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Stage 7: publish a run directory to the index store (design.md §2/§4, D3).
 
 - manifest WITHOUT indexStore → local mode: copy runs/<id>/ into a folder
@@ -18,7 +20,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from . import artifacts as artifacts_mod
 from .manifest import IndexStoreSpec
@@ -155,3 +157,48 @@ def publish_github(run_dir: Path, store: IndexStoreSpec, run_id: str,
     log.info("  [+] Pushed run %s to %s@%s%s", run_id, store.repo, store.branch,
              f" (pruned {', '.join(removed)})" if removed else "")
     return True
+
+
+# ---------------------------------------------------------------------------
+# workspace mode (workspace-restructure.md): the workspace IS the store
+# ---------------------------------------------------------------------------
+
+def _git_ws(ws_root: Path, *args: str) -> subprocess.CompletedProcess:
+    return _run(["git", *args], cwd=ws_root)
+
+
+def _ensure_git_identity(ws_root: Path) -> None:
+    res = _git_ws(ws_root, "config", "user.email")
+    if res.returncode != 0:
+        _git_ws(ws_root, "config", "user.email", "multi-repo-graph@localhost")
+        _git_ws(ws_root, "config", "user.name", "multi-repo-graph")
+
+
+def publish_workspace(run_dir: Path, ws_root: Path, run_id: str,
+                      commit_message: str, keep_last: int,
+                      push: bool, dry_run: bool = False) -> Dict[str, Any]:
+    """Copy the run into runs/, write latest.json, prune beyond keepLast,
+    commit (and push when enabled). The workspace is always a git repo."""
+    runs_root = ws_root / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+    dest = runs_root / run_id
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(run_dir, dest)
+    write_latest(ws_root, run_id)
+    removed = prune_old_runs(ws_root, keep_last)
+
+    _ensure_git_identity(ws_root)
+    _git_ws(ws_root, "add", "-A")
+    committed = _git_ws(ws_root, "commit", "-m", commit_message).returncode == 0
+    stat = _git_ws(ws_root, "log", "-1", "--stat", "--oneline")
+    pushed = False
+    if committed and push and not dry_run:
+        res = _git_ws(ws_root, "push")
+        if res.returncode != 0:
+            raise RuntimeError(
+                f"git push of workspace failed: {res.stderr.strip()[:500]}")
+        pushed = True
+    return {"dest": str(dest), "committed": committed, "pushed": pushed,
+            "pruned": removed, "log": stat.stdout[:2000],
+            "dry_run": dry_run}

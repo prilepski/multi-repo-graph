@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 // Portfolio fan-out over per-repo codegraph indexes (design.md §10):
 // opens every repo's codegraph DB read-only, runs ONE query shape per
 // invocation, merges results tagged with the repo name. Complements — never
@@ -19,11 +21,29 @@
 // resolved from indexer/nodejs/node_modules (single pinned install).
 import { readFileSync } from 'node:fs';
 
-const sdkUrl = new URL(
-  '../indexer/nodejs/node_modules/@colbymchenry/codegraph/npm-sdk.js',
-  import.meta.url).href;
-const sdk = await import(sdkUrl);          // CJS: exports under .default
-const { CodeGraph } = sdk.default ?? sdk;
+// Resolve the codegraph SDK for BOTH layouts:
+//   1. MRG_CODEGRAPH_SDK env var (explicit pointer — used by the workspace runtime)
+//   2. ./node_modules (workspace runtime layout: up.py npm-installs here)
+//   3. ../indexer/nodejs/node_modules (tool-repo layout, single pinned install)
+async function importSdk() {
+  const candidates = [
+    process.env.MRG_CODEGRAPH_SDK,
+    new URL('./node_modules/@colbymchenry/codegraph/npm-sdk.js',
+            import.meta.url).href,
+    new URL('../indexer/nodejs/node_modules/@colbymchenry/codegraph/npm-sdk.js',
+            import.meta.url).href,
+  ].filter(Boolean);
+  let lastErr;
+  for (const url of candidates) {
+    try {
+      const mod = await import(url);      // CJS: exports under .default
+      const { CodeGraph } = mod.default ?? mod;
+      if (CodeGraph) return CodeGraph;
+    } catch (err) { lastErr = err; }
+  }
+  throw new Error(`codegraph SDK not found (tried ${candidates.length} locations): ${lastErr}`);
+}
+const CodeGraph = await importSdk();
 
 const [reposJsonPath, command, argsJson = '{}'] = process.argv.slice(2);
 if (!reposJsonPath || !command) {

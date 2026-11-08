@@ -1,41 +1,44 @@
 # AGENTS.md — multi-repo-graph
 
 Batch indexer: codegraph extraction → java-graph Neo4j schema →
-timestamp-versioned artifacts in an index store. **Implemented — first
-verified end-to-end run 2026-11-08; design in `docs/design.md`.**
+timestamp-versioned snapshots in a per-company **codegraph-workspace**.
 
-This project is the copy-and-enhance successor of **java-graph** (never
-"relocated" as java-graph — it was copied here and is being enhanced under a
-new name). The original java-graph stays read-only in its ZCode session
-workspace; a pristine code copy lives in `reference/java-indexer/`.
+**This repo is the TOOL: source code only — never write run data here.**
+All runs target a workspace (`--workspace`): repos/, runs/, runtime/, logs/
+live there (docs/workspace-restructure.md, approved + implemented).
 
 ## Read first
 
-1. `docs/design.md` — architecture, schema, scale plan, **decisions D1–D7
-   (settled — do not relitigate without the user)**, open items O1–O5.
-2. `docs/java-graph-references.md` — what was copied from java-graph and
-   where the original lives.
-3. `docs/verification-bulk-api.md` — the O1 spike that gates the exporter
-   (findings appended at the bottom).
+1. `docs/design.md` — architecture, schema, scale plan, decisions D1–D7
+   (settled — do not relitigate without the user).
+2. `docs/workspace-restructure.md` — the tool/workspace split (approved,
+   decisions A–G recorded inline).
+3. `docs/verification-bulk-api.md` — O1 spike findings (exporter contract).
 
 ## Ground rules
 
-- **java-graph is read-only** — the original in the session workspace is
-  never modified; `reference/java-indexer/` is the frozen copy we enhanced
-  from. New pipeline code lives in `indexer/`.
-- **The portfolio Neo4j schema (design.md §5) is a contract** — downstream
-  MFLens MCP (60+4 tools, 111 tests) queries it unchanged (D7).
-- **Batch, no watchers** (D2). Anything live/incremental is future work.
-- codegraph version is **pinned**; schema fingerprint verified at run start
-  (D1/O2).
-- Scale decisions assume **100M LOC** (D5): streaming over loading, worker
-  pools over threads, sampling over full re-checks at scale.
-- **Neo4j**: dedicated container `mrg-neo4j-instance` (bolt 7688, http 7475,
-  `neo4j:5-community` + APOC). Never touch java-graph's running
-  `scip-neo4j-instance` (ports 7687/7474).
-- Index store: `prilepski/multi-repo-index-store` (private) when
-  `indexStore` is in the manifest, else local folder next to repos (D3).
-  Runs are timestamp-versioned; retention default 3.
-- Exit code 0 only if every repo indexed, exported, ingested, verified, and
-  published cleanly; partial runs write artifacts + summary with explicit
-  failure markers but fail the run.
+- **java-graph is read-only** — original in its ZCode session workspace;
+  frozen copy at `reference/java-indexer/`.
+- **The portfolio Neo4j schema (design.md §5) is a contract** — MFLens MCP
+  (60+4 tools) queries it unchanged (D7).
+- **Batch, no watchers** (D2). **Scale target 100M LOC** (D5): streaming
+  over loading, worker pools over threads, sampling over full re-checks.
+- codegraph version **pinned**; schema fingerprint verified at run start
+  (D1/O2) — mismatch is a hard fail, never a silent wrong export.
+- **Workspace is a git repo, always** (decision C): publish = commit
+  (`runs/`, `runtime/`, `latest.json`), keepLast prunes, remote push
+  optional. Pruned runs stay reachable in history.
+- The pipeline **stops its ingest container after dumping** (batch
+  cleanliness; `up.py` needs the workspace ports on the same machine).
+- Runtime bootstrap: **thin sh/ps1 shims locate a Python; all logic is
+  Python** (`runtime_templates/up.py` / `down.py`) (decision G).
+- Exit code 0 only if every repo indexed, exported, ingested, verified,
+  and published cleanly.
+- **License: MIT, Dmitri Prilepski <dmitri@vidukate.ai>** — keep the SPDX
+  headers on first-party sources; new files get one.
+
+## Tests
+
+offline (`pytest`), Neo4j integration (`NEO4J_TEST_URI`), workspace e2e
+(`MRG_E2E=1` — needs docker+node). MCP suites: `mcp-server/.venv`,
+`codegraph-mcp/.venv` (integration tests also need `NEO4J_TEST_URI`).

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Graph viewer server: serves the HTML viewer and a JSON API over the
 Neo4j code graph populated by index_to_neo4j.py.
 

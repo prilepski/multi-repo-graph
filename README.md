@@ -1,91 +1,67 @@
 # multi-repo-graph
 
-Batch pipeline that indexes a manifest-listed set of cloned repositories with
-[codegraph](https://github.com/colbymchenry/codegraph) (34 languages,
-tree-sitter based), exports the results into a unified **Neo4j portfolio
-graph** (java-graph schema), and publishes **timestamp-versioned artifacts**
-— per-repo codegraph DBs + a Neo4j dump + a run manifest — to a private
-index-store repo or a local folder.
+Batch indexer that turns a manifest-listed set of cloned repositories into
+[codegraph](https://github.com/colbymchenry/codegraph) indexes (34 languages,
+tree-sitter based), a unified **Neo4j portfolio graph** (java-graph schema),
+and **timestamp-versioned snapshots** published into a
+**codegraph-workspace** — the single per-company repo users interact with.
 
-Copy-and-enhance successor of **java-graph** (pipeline skeleton, portfolio
-schema, and MCP/viewer consumers originate there — see
-`docs/java-graph-references.md`).
-
-**Status: implemented and verified.** First end-to-end run (2026-11-08):
-thingsboard + dolphinscheduler, 2.55M LOC total — every count metric OK,
-2,000/2,000 sampled edge checks passed, ~244 MB of artifacts published to the
-local index store; the unmodified MFLens MCP backend queries the resulting
-graph (search, source reads via `:File.sha256`, `resolvedTo` call chains)
-across both repos. 39 offline + 3 Neo4j-integration tests.
+**This repo is the TOOL: source code only.** Runs write nothing here; every
+user (company) sets up a `codegraph-workspace` that owns the repo list, all
+snapshots, and a deployed runtime (viewer + MCP servers). Users never need
+this repo — see `docs/workspace-restructure.md`.
 
 ## Layout
 
 ```
-AGENTS.md                       ground rules for agent sessions
-manifest.json                   the repos this machine indexes (see manifest.example.json)
-docs/
-  design.md                     the design (architecture, schema, scale, D1–D7)
-  java-graph-references.md      what was copied from java-graph, file by file
-  verification-bulk-api.md      O1 spike plan + findings (gates the exporter)
-indexer/                        the batch pipeline (stages 0–7)
-  pipeline.py                   orchestrator + CLI
-  manifest.py                   stage 0/1: validation, clones, clean-tree guard
-  exporter.py + nodejs/         stage 3: codegraph bulk API -> portfolio rows
-  nodejs/index-pool.mjs         stage 2: codegraph index worker pool (Node 22.5+)
-  ingest.py                     stage 4: batched UNWIND, idempotent MERGE
-  verify.py                     stage 5: per-repo counts + sampled edge checks
-  artifacts.py                  stage 6: run dir, zstd artifacts, run-manifest
-  publish.py                    stage 7: local folder | GitHub store (+retention)
-  tests/                        offline unit + Neo4j integration tests
-reference/java-indexer/         frozen copy of java-graph's pipeline (enhance base)
+indexer/                        the batch pipeline (stages 0–8)
+  pipeline.py                   orchestrator + CLI (--workspace …)
+  manifest.py / workspace.py    workspace.json + repo validation/clones
+  exporter.py + nodejs/         codegraph bulk API -> portfolio rows
+  ingest.py / verify.py         batched UNWIND ingest; count+sample checks
+  artifacts.py / publish.py     run dir, zstd artifacts, workspace commit
+  deploy.py + runtime_templates stage 8: runtime deploy; up.py/down.py
+  tests/                        offline units + gated e2e (MRG_E2E=1)
 mcp-server/                     MFLens MCP (60+4 tools; 128 offline + 8 multi-repo tests)
 codegraph-mcp/                  portfolio fan-out wrapper MCP (5 tools; 21 tests)
-graph-viewer/                   constellation viewer — future snapshot consumer
-spike/                          O1 spike (scripts + pinned package-lock)
-repos/                          cloned repos (gitignored)
-index-store/                    local-mode artifact store (gitignored)
+graph-viewer/                   constellation viewer
+reference/java-indexer/         frozen java-graph copy (enhance base)
+docs/                           design.md, workspace-restructure.md, spike findings
+workspace.example.json          workspace format (repos + settings + remote)
 ```
 
-## Running
+## Usage
 
 ```bash
+# tool setup (once)
 cd indexer && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cd .. && indexer/nodejs && npm install   # pinned @colbymchenry/codegraph
-cd .. && indexer/.venv/bin/python -m indexer.pipeline --manifest manifest.json
+(cd nodejs && npm install)
+
+# create a workspace (per company) — see workspace.example.json
+mkdir my-codegraph-workspace  # …add workspace.json…
+
+# run the pipeline: index -> graph -> snapshot -> runtime, all INTO the workspace
+indexer/.venv/bin/python -m indexer.pipeline --workspace /path/to/my-codegraph-workspace
+
+# consume (any user with a clone of the workspace — no tool repo needed)
+runtime/scripts/up.sh          # or up.ps1 on Windows
+#   -> neo4j (restored dump), codegraph DBs, viewer on :7600, MCP registration
+runtime/scripts/down.sh
 ```
 
-Neo4j runs in a dedicated container (`mrg-neo4j-instance`, bolt 7688 / http
-7475, launched automatically). Add `"indexStore"` to the manifest to publish
-to the private GitHub store instead of `repos/../index-store/`;
-`--publish-dry-run` builds the store commit without pushing.
+Exit code 0 only if every repo indexed, exported, ingested, verified, and
+published cleanly (docs/design.md §2). Scale target 100M LOC (D5); batch
+only, no watchers (D2); MFLens 60+4 contract unchanged (D7).
 
 ## Tests
 
 ```bash
-indexer/.venv/bin/python -m pytest                       # offline (36)
-NEO4J_TEST_URI=bolt://localhost:7688 \
-NEO4J_TEST_PASSWORD=graphpassword123 \
-indexer/.venv/bin/python -m pytest indexer/tests/test_ingest_integration.py
+indexer/.venv/bin/python -m pytest                      # offline
+NEO4J_TEST_URI=bolt://localhost:7688 indexer/.venv/bin/python -m pytest \
+  indexer/tests/test_ingest_integration.py              # + neo4j integration
+MRG_E2E=1 indexer/.venv/bin/python -m pytest indexer/tests/test_workspace_e2e.py
 ```
 
-## Pipeline
+## License
 
-`manifest.json` lists repos (+ optional `indexStore`). Stages: validate →
-ensure clones (shallow default) → codegraph index per repo (Node worker
-pool) → export to the java-graph Neo4j schema (bulk API preferred, SQLite
-fallback; streaming, never full-graph-in-RAM) → batched idempotent ingest →
-verify counts per repo → artifacts (`neo4j.dump.zst`, per-repo
-`codegraph.db.zst`, `run-manifest.json`, `summary.json`) → publish to
-`runs/<UTC-timestamp>/` in the store (GitHub commit) or a local folder.
-
-No live updates (D2); scale target 100M LOC (D5). See `docs/design.md` for
-decisions D1–D7 and open items O1–O5.
-
-## Related
-
-| What | Where |
-|---|---|
-| Design seed (docs-only predecessor) | `~/projects/multi-repo-indexer` |
-| java-graph original (read-only) | ZCode session workspace (see `docs/java-graph-references.md`) |
-| Index store (private, artifacts) | [prilepski/multi-repo-index-store](https://github.com/prilepski/multi-repo-index-store) |
-| Extraction engine | [codegraph](https://github.com/colbymchenry/codegraph) — npm `@colbymchenry/codegraph`, Node 22.5+ |
+MIT © [Dmitri Prilepski](mailto:dmitri@vidukate.ai) — see [LICENSE](LICENSE).

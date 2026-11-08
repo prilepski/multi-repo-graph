@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Stage 4: Neo4j ingest — batched UNWIND Cypher with idempotent MERGE.
 
 Ported from java-graph's index_to_neo4j.py (frozen at

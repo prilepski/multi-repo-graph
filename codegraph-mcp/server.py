@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Codegraph portfolio MCP — the fan-out wrapper over per-repo codegraph
 indexes (design.md §10: "search/callers/impact/explore across all repos").
 

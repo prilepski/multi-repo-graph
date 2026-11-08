@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Stage 5: post-ingest verification (java-graph rule: verify every run).
 
 - exact node/edge counts per repo, always (extracted uniques vs graph)

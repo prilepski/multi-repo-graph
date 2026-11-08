@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Stage 6: timestamp-versioned run artifacts (design.md §4).
 
     runs/<UTC-timestamp>/
@@ -72,14 +74,25 @@ class RunArtifacts:
         }
 
     def stage_neo4j_dump(self, dump_path: Path) -> Dict[str, Any]:
-        dest = self.neo4j_dir / "neo4j.dump.zst"
-        zstd_compress(dump_path, dest)
-        dump_path.unlink()  # uncompressed copy is huge; keep only .zst
-        return {
-            "dump": "neo4j/neo4j.dump.zst",
-            "dumpSha256": sha256_file(dest),
-            "dumpBytes": dest.stat().st_size,
-        }
+        """Compress neo4j.dump (+ system.dump when present — credentials
+        live in the system database)."""
+        result: Dict[str, Any] = {}
+        for dump in sorted(self.neo4j_dir.glob("*.dump")):
+            dest = self.neo4j_dir / f"{dump.name}.zst"
+            zstd_compress(dump, dest)
+            dump.unlink()  # uncompressed copies are huge; keep only .zst
+            if dump.name == "neo4j.dump":
+                result.update({
+                    "dump": f"neo4j/{dest.name}",
+                    "dumpSha256": sha256_file(dest),
+                    "dumpBytes": dest.stat().st_size,
+                })
+            else:
+                result["systemDump"] = f"neo4j/{dest.name}"
+                result["systemDumpSha256"] = sha256_file(dest)
+        if "dump" not in result:
+            raise FileNotFoundError(f"no neo4j dump found in {self.neo4j_dir}")
+        return result
 
     def write_run_manifest(self, payload: Dict[str, Any]) -> Path:
         self.run_dir.mkdir(parents=True, exist_ok=True)

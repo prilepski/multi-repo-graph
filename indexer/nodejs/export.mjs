@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 // Stage 3 (Node half): stream portfolio-schema rows from a codegraph index.
 // Usage: node export.mjs <repoPath> <repoName>
 // Emits JSON lines {"t": <table>, "row": {...}} on stdout in ingest order:

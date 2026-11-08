@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 // Stage 2 worker: index ONE repo with codegraph, fold the WAL, report JSON.
 // Child of index-pool.mjs. Usage: node index-worker.mjs <repoPath>
 // stdout gets exactly one JSON line; progress goes to stderr (parent relays).

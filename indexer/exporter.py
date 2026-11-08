@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Dmitri Prilepski <dmitri@vidukate.ai>
 """Stage 3 (Python half): stream portfolio rows out of a repo + its codegraph
 index. Combines two sources (design.md §5/§6):
 

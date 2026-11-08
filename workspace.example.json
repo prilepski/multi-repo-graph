@@ -12,5 +12,18 @@
       "path": "repos/dolphinscheduler",
       "shallow": true
     }
-  ]
+  ],
+  "settings": {
+    "keepLast": 3,
+    "concurrency": null,
+    "viewerPort": 7600,
+    "neo4j": {
+      "boltPort": 7688,
+      "httpPort": 7475,
+      "password": "graphpassword123"
+    }
+  },
+  "remote": {
+    "push": false
+  }
 }
