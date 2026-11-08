@@ -45,6 +45,14 @@ NODEJS_DIR = PROJECT_ROOT / "indexer" / "nodejs"
 def _ensure_container_up():
     """docker-start bootstrap (pipeline stops its container after dumping)."""
     import subprocess
+    names = subprocess.run(["docker", "ps", "-a", "--format", "{{.Names}}"],
+                           capture_output=True, text=True).stdout.split()
+    if "mrg-neo4j-instance" not in names:
+        subprocess.run(["docker", "run", "-d", "--name", "mrg-neo4j-instance",
+                        "-p", "7688:7687", "-p", "7475:7474",
+                        "-e", "NEO4J_AUTH=neo4j/graphpassword123",
+                        "-e", 'NEO4J_PLUGINS=["apoc"]',
+                        "neo4j:5-community"], capture_output=True)
     subprocess.run(["docker", "start", "mrg-neo4j-instance"], capture_output=True)
 
 
