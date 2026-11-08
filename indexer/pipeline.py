@@ -188,11 +188,11 @@ def main() -> None:
             continue
         stats = res.get("stats", {})
         if not stats.get("fileCount"):
-            stage2_ok = False
-            log.error("  [-] %-20s index is empty after stage 2 "
-                      "(stats.fileCount=0) — wrong path or empty repo?",
-                      ready.spec.name)
-            continue
+            # docs/data-only repos (wikis!) legitimately index 0 code files;
+            # they still get :File rows + inventory from our own scan
+            log.warning("  [!] %-20s codegraph indexed 0 files "
+                        "(docs/data-only repo) — inventory-only in the graph",
+                        ready.spec.name)
         try:
             exporter.check_schema_fingerprint(
                 manifest_mod.codegraph_db_path(ready.spec.path))
