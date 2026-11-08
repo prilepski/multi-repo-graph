@@ -35,9 +35,15 @@ RUNTIME = Path(__file__).resolve().parents[1]   # <ws>/runtime
 SCRIPTS = RUNTIME / "scripts"
 WS = RUNTIME.parent                              # <ws>
 
-NEO4J_CONTAINER = "codegraph-neo4j"
-NEO4J_VOLUME = "codegraph-neo4j-data"
 NEO4J_IMAGE = "neo4j:5-community"
+
+
+def consumer_names(settings_neo4j):
+    """Consumer container/volume are per-workspace (derived from the ingest
+    container name) so several workspaces can serve on one machine — and
+    the pipeline knows exactly which consumer of ours to yield to."""
+    base = settings_neo4j.get("container") or "codegraph-neo4j"
+    return f"{base}-serve", f"{base}-serve-data"
 
 
 def log(msg: str) -> None:
@@ -122,7 +128,7 @@ def ensure_codegraph_sdk() -> None:
 # ---------------------------------------------------------------------------
 
 def restore_neo4j(dump_zst: Path, bolt_port: int, http_port: int,
-                  password: str) -> None:
+                  password: str, container: str, volume: str) -> None:
     import zstandard
     # decompress into gitignored snapshot/ — NEVER next to the .zst files
     # (runs/ is committed content; raw dumps must not land there)
@@ -135,9 +141,9 @@ def restore_neo4j(dump_zst: Path, bolt_port: int, http_port: int,
             zstandard.ZstdDecompressor().copy_stream(src, dst)
 
     log("recreating neo4j volume + container …")
-    run(["docker", "rm", "-f", NEO4J_CONTAINER])
-    run(["docker", "volume", "rm", "-f", NEO4J_VOLUME])
-    run(["docker", "volume", "create", NEO4J_VOLUME])
+    run(["docker", "rm", "-f", container])
+    run(["docker", "volume", "rm", "-f", volume])
+    run(["docker", "volume", "create", volume])
     # system first (credentials), then the graph itself
     for db in ("system", "neo4j"):
         dump = dumps_dir / f"{db}.dump"
@@ -145,14 +151,14 @@ def restore_neo4j(dump_zst: Path, bolt_port: int, http_port: int,
             continue
         res = run(["docker", "run", "--rm",
                    "-v", f"{dumps_dir}:/dumps",
-                   "-v", f"{NEO4J_VOLUME}:/data",
+                   "-v", f"{volume}:/data",
                    NEO4J_IMAGE, "neo4j-admin", "database", "load", db,
                    "--from-path=/dumps"])
         if res.returncode != 0:
             die(f"neo4j-admin load {db} failed: {res.stderr[-500:]}")
-    res = run(["docker", "run", "-d", "--name", NEO4J_CONTAINER,
+    res = run(["docker", "run", "-d", "--name", container,
                "-p", f"{bolt_port}:7687", "-p", f"{http_port}:7474",
-               "-v", f"{NEO4J_VOLUME}:/data",
+               "-v", f"{volume}:/data",
                NEO4J_IMAGE])
     if res.returncode != 0:
         die(f"starting neo4j container failed: {res.stderr[-500:]}")
@@ -325,7 +331,9 @@ def main() -> None:
 
     py = ensure_venv()
     ensure_codegraph_sdk()
-    restore_neo4j(run_dir / "neo4j" / "neo4j.dump.zst", bolt, http, password)
+    container, volume = consumer_names(neo4j)
+    restore_neo4j(run_dir / "neo4j" / "neo4j.dump.zst", bolt, http,
+                  password, container, volume)
     snap = restore_codegraphs(run_dir)
     repo_paths = {} if args.skip_repos else checkout_repos(run_manifest)
     reg = write_configs(bolt, password, viewer_port, repo_paths, snap, args.mode)

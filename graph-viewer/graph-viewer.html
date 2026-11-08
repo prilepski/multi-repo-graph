@@ -72,8 +72,8 @@
     flex: 1; position: relative; min-width: 0;
     background: radial-gradient(ellipse at 50% 42%, #101d38 0%, #0a1224 48%, #05080f 100%);
   }
-  #canvas-wrap svg { width: 100%; height: 100%; display: block; cursor: grab; }
-  #canvas-wrap svg.panning { cursor: grabbing; }
+  #fg { position: absolute; inset: 0; }
+  #fg canvas { outline: none; }
   .star { fill: #dfe9ff; }
   .star.tw { animation: twinkle 3.2s ease-in-out infinite alternate; }
   @keyframes twinkle { from { opacity: .15; } to { opacity: .9; } }
@@ -293,7 +293,7 @@
   </aside>
   <div id="canvas-wrap">
     <button id="panel-toggle" title="Show tree">&#9654; Tree</button>
-    <svg id="canvas"></svg>
+    <div id="fg"></div>
     <div class="legend" id="legend"></div>
     <div id="stats-pane">
       <div class="scope-bar">
@@ -339,6 +339,7 @@
   </div>
 </div>
 
+<script src="force-graph.min.js"></script>
 <script>
 "use strict";
 
@@ -376,172 +377,12 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
 }
 
-/* ================= CANVAS ================= */
-const svg = document.getElementById("canvas");
+/* ================= CANVAS (force-graph) ================= */
+const fgElem = document.getElementById("fg");
 const wrap = document.getElementById("canvas-wrap");
-const NS = "http://www.w3.org/2000/svg";
-let view = { x: 0, y: 0, k: 1 };
 let drillStack = [];   // stack of {focus} descriptors for level-up
 let current = null;    // current neighborhood payload (null = root overview)
 let selectedEid = null;
-
-function svgEl(tag, attrs) {
-  const el = document.createElementNS(NS, tag);
-  for (const k in attrs) el.setAttribute(k, attrs[k]);
-  return el;
-}
-
-function applyView() {
-  const W = wrap.clientWidth, H = wrap.clientHeight;
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  document.getElementById("viewport").setAttribute(
-    "transform", `translate(${view.x},${view.y}) scale(${view.k})`);
-  // parallax depth: star layers drift slower than the graph
-  const far = document.getElementById("stars-far");
-  const near = document.getElementById("stars-near");
-  if (far) far.setAttribute("transform", `translate(${W / 2 + view.x * 0.22},${H / 2 + view.y * 0.22})`);
-  if (near) near.setAttribute("transform", `translate(${W / 2 + view.x * 0.5},${H / 2 + view.y * 0.5}) scale(${1 + (view.k - 1) * 0.15})`);
-}
-
-function fitView(nodes, positions) {
-  const W = wrap.clientWidth, H = wrap.clientHeight;
-  let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
-  for (const p of Object.values(positions)) {
-    minX = Math.min(minX, p.x - 60); maxX = Math.max(maxX, p.x + 60);
-    minY = Math.min(minY, p.y - 30); maxY = Math.max(maxY, p.y + 30);
-  }
-  if (!Object.keys(positions).length) { view = { x: 0, y: 0, k: 1 }; applyView(); return; }
-  const k = Math.min(1.4, Math.min(W / (maxX - minX), H / (maxY - minY)));
-  view.k = k;
-  view.x = W / 2 - k * (minX + maxX) / 2;
-  view.y = H / 2 - k * (minY + maxY) / 2;
-  applyView();
-}
-
-function radialLayout(focusName, items, W, H) {
-  const cx = W / 2, cy = H / 2;
-  const positions = {};
-  const maxR = Math.min(W, H) * 0.36;
-  const groups = {};
-  for (const it of items) {
-    const key = (it.outgoing ? "→ " : "← ") + it.rel;
-    (groups[key] = groups[key] || []).push(it);
-  }
-  const keys = Object.keys(groups).sort();
-  let start = -Math.PI / 2;
-  const total = items.length;
-  for (const key of keys) {
-    const group = groups[key];
-    const sweep = (group.length / total) * Math.PI * 1.7;
-    group.forEach((it, i) => {
-      const t = group.length === 1 ? 0.5 : i / (group.length - 1);
-      const angle = start + t * sweep;
-      const r = maxR * (0.55 + 0.45 * ((i % 3) / 2));
-      positions[it.eid] = { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
-    });
-    start += sweep + 0.22;
-  }
-  if (focusName) positions.__focus = { x: cx, y: cy };
-  return positions;
-}
-
-async function renderRootOverview(roots) {
-  const vp = document.getElementById("viewport");
-  vp.innerHTML = "";
-  const W = wrap.clientWidth, H = wrap.clientHeight;
-  const positions = {};
-  roots.forEach((r, i) => {
-    const a = (i / roots.length) * Math.PI * 2 - Math.PI / 2;
-    positions[r.eid] = {
-      x: W / 2 + Math.min(W, H) * 0.25 * Math.cos(a),
-      y: H / 2 + Math.min(W, H) * 0.25 * Math.sin(a),
-    };
-  });
-  // cross-repo integration edges: dashed chords, weight by refs
-  let integrations = [];
-  try { integrations = await api("/api/integrations"); } catch (e) {}
-  const maxRefs = Math.max(1, ...integrations.map(i => i.refs));
-  for (const it of integrations) {
-    const p1 = positions[it.srcEid], p2 = positions[it.dstEid];
-    if (!p1 || !p2) continue;
-    const w = 0.8 + 2.6 * (it.refs / maxRefs);
-    const line = svgEl("line", {
-      x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
-      class: "edge integlink",
-      "stroke-width": w, opacity: 0.35 + 0.5 * (it.refs / maxRefs),
-    });
-    const t = svgEl("title", {});
-    t.textContent = `${it.src} → ${it.dst} · ${it.refs} refs (${it.files} files)`;
-    line.appendChild(t);
-    vp.appendChild(line);
-  }
-  for (const r of roots) drawNode(vp, r, positions[r.eid], false);
-  fitView(roots, positions);
-  if (integrations.length) toast(integrations.length + " cross-repo integration links (dashed)");
-}
-
-function renderNeighborhood(data) {
-  const vp = document.getElementById("viewport");
-  vp.innerHTML = "";
-  const W = wrap.clientWidth, H = wrap.clientHeight;
-  const cx = W / 2, cy = H / 2;
-  const positions = {};
-  positions[data.focus.eid] = { x: cx, y: cy };
-  const direct = data.nodes.filter(n => !n.anchor);
-  const ring2 = data.nodes.filter(n => n.anchor);
-
-  // relationship of each direct node to the focus (from edge list)
-  const relOf = {};
-  for (const e of data.edges) {
-    if (e.src === data.focus.eid) relOf[e.dst] = "→ " + e.rel;
-    else if (e.dst === data.focus.eid) relOf[e.src] = "← " + e.rel;
-  }
-  // ring 1: radial by relationship group
-  const groups = {};
-  for (const n of direct) { const k = relOf[n.eid] || "· other"; (groups[k] = groups[k] || []).push(n); }
-  const keys = Object.keys(groups).sort();
-  const maxR = Math.min(W, H) * 0.36;
-  let start = -Math.PI / 2;
-  const total = direct.length || 1;
-  for (const key of keys) {
-    const g = groups[key];
-    const sweep = (g.length / total) * Math.PI * 1.7;
-    g.forEach((n, i) => {
-      const t = g.length === 1 ? 0.5 : i / (g.length - 1);
-      const a = start + t * sweep;
-      const r = maxR * (0.55 + 0.45 * ((i % 3) / 2));
-      positions[n.eid] = { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
-    });
-    start += sweep + 0.22;
-  }
-  // ring 2: class links orbit their anchor type
-  const counts = {};
-  for (const n of ring2) {
-    const a = positions[n.anchor] || { x: cx, y: cy };
-    const i = counts[n.anchor] = (counts[n.anchor] || 0) + 1;
-    const baseAng = Math.atan2((a.y - cy) || 0.01, (a.x - cx) || 0.01);
-    const ang = baseAng + (i - 1) * 0.75 - 0.375;
-    positions[n.eid] = { x: a.x + 82 * Math.cos(ang), y: a.y + 82 * Math.sin(ang) };
-  }
-  // edges
-  for (const e of data.edges) {
-    const p1 = positions[e.src], p2 = positions[e.dst];
-    if (!p1 || !p2) continue;
-    const focusEdge = (e.src === data.focus.eid || e.dst === data.focus.eid);
-    const cls = focusEdge
-      ? "edge " + (e.src === data.focus.eid ? "outgoing" : "incoming")
-      : "edge typelink";
-    const line = svgEl("line", { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, class: cls });
-    const t = svgEl("title", {});
-    t.textContent = e.rel;
-    line.appendChild(t);
-    vp.appendChild(line);
-  }
-  drawNode(vp, data.focus, positions[data.focus.eid], true);
-  for (const n of data.nodes) drawNode(vp, n, positions[n.eid], false);
-  fitView(data.nodes, positions);
-  if (data.truncated) toast("Large neighborhood — showing a capped subset");
-}
 
 function depthOf(eid) {
   // deterministic pseudo-depth per node: drives glow size/brightness variance
@@ -550,70 +391,121 @@ function depthOf(eid) {
   return 0.8 + ((h % 100) / 100) * 0.45;
 }
 
-function drawNode(vp, node, pos, isFocus) {
-  const g = svgEl("g", { class: "node" + (isFocus ? " focus" : ""), transform: `translate(${pos.x},${pos.y})` });
-  g.dataset.eid = node.eid;
-  const color = colorFor(node.label);
-  const depth = isFocus ? 1.15 : depthOf(node.eid);
-  const r = (isFocus ? 15 : (node.label === "Repository" ? 13 : node.label === "Package" ? 10 : node.label === "Type" ? 9 : 7)) * depth;
-  // glow halo
-  g.appendChild(svgEl("circle", { r: r * 2.3, fill: color, opacity: 0.16, class: "halo" }));
-  // orb body: radial gradient for a lit-sphere look
-  g.appendChild(svgEl("circle", { r, fill: `url(#grad-${node.label || "other"})` }));
-  const label = svgEl("text", { x: 0, y: r + 13, "text-anchor": "middle", opacity: Math.min(1, 0.6 + depth * 0.35) });
-  label.textContent = shortName(node.name);
-  g.appendChild(label);
-  const title = svgEl("title", {});
-  title.textContent = `${node.label}: ${node.name}` + (node.file ? `\nfile: ${node.file}` : "");
-  g.appendChild(title);
-  if (node.eid === selectedEid) g.classList.add("selected");
-  vp.appendChild(g);
+function nodeRadius(node, isFocus) {
+  const base = node.label === "Repository" ? 13 : node.label === "Package" ? 10
+             : node.label === "Type" ? 9 : 7;
+  return base * (isFocus ? 1.35 : depthOf(node.eid));
 }
 
-/* click vs double-click disambiguation */
-let clickTimer = null;
-svg.addEventListener("click", (e) => {
-  const nodeEl = e.target.closest(".node");
-  if (!nodeEl) return;
-  const eid = nodeEl.dataset.eid;
-  clearTimeout(clickTimer);
-  clickTimer = setTimeout(() => selectNode(eid, e), 220);
-});
-svg.addEventListener("dblclick", (e) => {
-  const nodeEl = e.target.closest(".node");
-  if (!nodeEl) return;
-  clearTimeout(clickTimer);
-  drillDown(nodeEl.dataset.eid);
-});
+const REL_STYLE = {
+  INTEGRATES: { color: "rgba(232,182,76,.45)", arrow: 3.5, particles: 2, width: 1.4 },
+  CONTAINS:   { color: "rgba(122,162,247,.20)", arrow: 0,   width: 0.8 },
+  DEFINES:    { color: "rgba(122,162,247,.28)", arrow: 0,   width: 1.0 },
+  CALLS:      { color: "rgba(122,162,247,.35)", arrow: 3,   width: 0.8 },
+  IMPORTS:    { color: "rgba(95,184,120,.35)",  arrow: 3,   width: 0.8 },
+  EXTENDS:    { color: "rgba(180,138,237,.5)",  arrow: 3.5, width: 1.2 },
+  IMPLEMENTS: { color: "rgba(180,138,237,.5)",  arrow: 3.5, width: 1.2 },
+};
+function relStyle(rel) {
+  if (typeof rel === "string" && rel.startsWith("INTEGRATES")) return REL_STYLE.INTEGRATES;
+  const key = (rel || "").split(" ")[0].toUpperCase().replace(/[^A-Z]/g, "");
+  return REL_STYLE[key] || { color: "rgba(125,143,181,.25)", arrow: 0,
+                             particles: 0, width: 0.8 };
+}
 
-/* pan & zoom */
-let panning = null;
-svg.addEventListener("mousedown", (e) => {
-  if (e.target.closest(".node")) return;
-  panning = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
-  svg.classList.add("panning");
-});
-window.addEventListener("mousemove", (e) => {
-  if (!panning) return;
-  view.x = panning.vx + (e.clientX - panning.x);
-  view.y = panning.vy + (e.clientY - panning.y);
-  applyView();
-});
-window.addEventListener("mouseup", () => { panning = null; svg.classList.remove("panning"); });
-wrap.addEventListener("wheel", (e) => {
-  // scrollable panels layered on the canvas (#stats-pane covers the whole
-  // viewport in Statistics mode, #details is the popup) must scroll
-  // themselves — don't hijack their wheel events for canvas zoom
-  if (e.target.closest("#stats-pane, #details, #search-drop")) return;
-  e.preventDefault();
-  const k = Math.min(4, Math.max(0.15, view.k * (e.deltaY < 0 ? 1.12 : 0.89)));
-  const rect = wrap.getBoundingClientRect();
-  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-  view.x = mx - (mx - view.x) * (k / view.k);
-  view.y = my - (my - view.y) * (k / view.k);
-  view.k = k;
-  applyView();
-}, { passive: false });
+function paintNode(n, ctx, globalScale) {
+  const isFocus = !!n.__focus;
+  const color = colorFor(n.label);
+  const r = nodeRadius(n, isFocus);
+  ctx.save();
+  ctx.shadowBlur = 16; ctx.shadowColor = color;
+  ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI);
+  ctx.fillStyle = color; ctx.fill();
+  ctx.restore();
+  if (n.eid === selectedEid) {
+    ctx.beginPath(); ctx.arc(n.x, n.y, r + 3.5, 0, 2 * Math.PI);
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.4; ctx.stroke();
+  }
+  const showLabel = isFocus || globalScale > 0.85 ||
+                    n.label === "Repository" || n.label === "Package";
+  if (showLabel) {
+    ctx.font = `${(isFocus ? 11.5 : 10) / globalScale}px -apple-system,system-ui,sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillStyle = isFocus ? color : "rgba(219,228,245,.85)";
+    ctx.fillText(shortName(n.name), n.x, n.y + r + 12 / globalScale);
+  }
+}
+
+let clickTimer = null;   // click-select vs dblclick-drill disambiguation
+let lastNodeClick = { eid: null, t: 0 };
+
+const graph = ForceGraph()(fgElem)
+  .backgroundColor("#0a1224")
+  .nodeLabel(n => `${n.label}: ${n.name}` + (n.file ? `\nfile: ${n.file}` : ""))
+  .linkLabel(l => l.__label || "")
+  .nodeCanvasObject(paintNode)
+  .nodePointerAreaPaint((n, color, ctx, gs) => {
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, nodeRadius(n, !!n.__focus) + 4 / gs, 0, 2 * Math.PI);
+    ctx.fillStyle = color; ctx.fill();
+  })
+  // no native dblclick in this build: two clicks on the same node within
+  // 350ms = drill; a lone click selects (delayed so it doesn't pre-fire)
+  .onNodeClick((node, ev) => {
+    const now = Date.now();
+    const isDbl = lastNodeClick.eid === node.eid && (now - lastNodeClick.t) < 350;
+    lastNodeClick = { eid: node.eid, t: now };
+    clearTimeout(clickTimer);
+    if (isDbl) { clickTimer = null; drillDown(node.eid); return; }
+    clickTimer = setTimeout(() => selectNode(node.eid, ev), 260);
+  })
+  .linkCurvature(0.18)
+  .linkColor(l => l.__style.color)
+  .linkWidth(l => l.__width || l.__style.width)
+  .linkDirectionalArrowLength(l => l.__style.arrow)
+  .linkDirectionalArrowRelPos(0.85)
+  .linkDirectionalArrowColor(l => l.__style.color)
+  .linkDirectionalParticles(l => l.__style.particles || 0)
+  .linkDirectionalParticleWidth(1.6)
+  .linkDirectionalParticleSpeed(0.006)
+  .onEngineStop(() => graph.zoomToFit(600, 70))
+  .cooldownTime(6000);
+
+async function renderRootOverview(roots) {
+  current = null;
+  let integrations = [];
+  try { integrations = await api("/api/integrations"); } catch (e) {}
+  const maxRefs = Math.max(1, ...integrations.map(i => i.refs));
+  const nodes = roots.map(r => ({ id: r.eid, eid: r.eid, name: r.name,
+                                  label: r.label }));
+  const byEid = new Set(nodes.map(n => n.eid));
+  const links = integrations
+    .filter(i => byEid.has(i.srcEid) && byEid.has(i.dstEid))
+    .map(i => ({ source: i.srcEid, target: i.dstEid,
+                 __style: relStyle("INTEGRATES"),
+                 __width: 0.7 + 3.2 * (i.refs / maxRefs),
+                 __label: `${i.src} → ${i.dst} · ${i.refs} refs (${i.files} files)` }));
+  graph.d3Force("charge").strength(-520);
+  graph.graphData({ nodes, links });
+  if (integrations.length) toast(integrations.length + " cross-repo integration links");
+}
+
+function renderNeighborhood(data) {
+  graph.d3Force("charge").strength(-260);
+  const nodes = [{ id: data.focus.eid, eid: data.focus.eid,
+                   name: data.focus.name, label: data.focus.label,
+                   __focus: true }]
+    .concat(data.nodes.map(n => ({ id: n.eid, eid: n.eid, name: n.name,
+                                   label: n.label })));
+  const byEid = new Set(nodes.map(n => n.eid));
+  const links = data.edges
+    .filter(e => byEid.has(e.src) && byEid.has(e.dst))
+    .map(e => ({ source: e.src, target: e.dst,
+                 __style: relStyle(e.rel), __label: e.rel }));
+  graph.graphData({ nodes, links });
+  if (data.truncated) toast("Large neighborhood — showing a capped subset");
+}
+
 
 /* ---------------- details popup ---------------- */
 async function selectNode(eid, ev) {
@@ -1392,48 +1284,8 @@ function statsTreeRow(node) {
   return li;
 }
 
-/* viewport group + boot */
+/* boot */
 (function boot() {
-  // radial gradients per label: lit-sphere orbs
-  const defs = svgEl("defs", {});
-  const gradientStops = [
-    ["0%", "#ffffff", 0.95], ["35%", "currentColor", 0.95], ["100%", "currentColor", 0.75],
-  ];
-  const labelsForGrad = Object.keys(LABEL_COLORS).concat(["other"]);
-  for (const label of labelsForGrad) {
-    const grad = svgEl("radialGradient", { id: `grad-${label}`, cx: "35%", cy: "30%", r: "75%" });
-    for (const [offset, color, opacity] of gradientStops) {
-      grad.appendChild(svgEl("stop", {
-        offset, "stop-color": color === "currentColor" ? colorFor(label) : color,
-        "stop-opacity": opacity,
-      }));
-    }
-    defs.appendChild(grad);
-  }
-  svg.appendChild(defs);
-
-  // starfield: two layers for parallax depth
-  function starLayer(id, count, rMin, rMax, baseOpacity) {
-    const g = svgEl("g", { id });
-    for (let i = 0; i < count; i++) {
-      const c = svgEl("circle", {
-        cx: (Math.random() * 2600 - 1300).toFixed(1),
-        cy: (Math.random() * 1700 - 850).toFixed(1),
-        r: (rMin + Math.random() * (rMax - rMin)).toFixed(2),
-        class: "star" + (Math.random() < 0.22 ? " tw" : ""),
-        opacity: (baseOpacity * (0.5 + Math.random() * 0.7)).toFixed(2),
-      });
-      if (c.classList.contains("tw")) c.style.animationDelay = (Math.random() * 3).toFixed(2) + "s";
-      g.appendChild(c);
-    }
-    return g;
-  }
-  svg.appendChild(starLayer("stars-far", 110, 0.5, 1.1, 0.5));
-  svg.appendChild(starLayer("stars-near", 45, 1.0, 1.9, 0.8));
-
-  const vp = svgEl("g", { id: "viewport" });
-  svg.appendChild(vp);
-  window.addEventListener("resize", applyView);
   toggleBtn.classList.add("hidden-when-open");
   loadRootOverview().catch(err => toast("Failed to load: " + err.message));
 })();

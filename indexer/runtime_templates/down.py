@@ -11,8 +11,11 @@ from pathlib import Path
 
 RUNTIME = Path(__file__).resolve().parents[1]
 WS = RUNTIME.parent
-NEO4J_CONTAINER = "codegraph-neo4j"
-NEO4J_VOLUME = "codegraph-neo4j-data"
+def consumer_names():
+    import json
+    settings = json.loads((WS / "workspace.json").read_text()).get("settings", {})
+    base = settings.get("neo4j", {}).get("container") or "codegraph-neo4j"
+    return f"{base}-serve", f"{base}-serve-data"
 
 
 def log(msg: str) -> None:
@@ -40,10 +43,11 @@ def main() -> None:
             pass
         pid_file.unlink(missing_ok=True)
 
-    subprocess.run(["docker", "rm", "-f", NEO4J_CONTAINER], capture_output=True)
+    container, volume = consumer_names()
+    subprocess.run(["docker", "rm", "-f", container], capture_output=True)
     log("neo4j container removed")
     if args.purge:
-        subprocess.run(["docker", "volume", "rm", "-f", NEO4J_VOLUME],
+        subprocess.run(["docker", "volume", "rm", "-f", volume],
                        capture_output=True)
         import shutil
         shutil.rmtree(WS / "snapshot", ignore_errors=True)

@@ -438,6 +438,19 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        # sibling static assets (force-graph.min.js) — this dir only, no ".."
+        if "/" not in url.path[1:] and "." in url.path[1:]:
+            asset = VIEWER_HTML.parent / url.path[1:]
+            if asset.is_file():
+                ctype = ("application/javascript" if asset.suffix == ".js"
+                         else "application/octet-stream")
+                body = asset.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
 
         if url.path == "/api/integrations":
             return self._send_json(API.integrations())

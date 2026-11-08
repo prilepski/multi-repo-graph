@@ -22,7 +22,7 @@ COMPONENTS: Dict[str, List[str]] = {
     "mcp-server": ["backend.py", "server.py", "requirements.txt", "README.md"],
     "codegraph-mcp": ["server.py", "fanout.mjs", "requirements.txt", "README.md"],
     "graph-viewer": ["viewer_server.py", "graph-viewer.html",
-                     "requirements.txt", "README.md"],
+                     "force-graph.min.js", "requirements.txt", "README.md"],
 }
 
 CODEGRAPH_PKG = {
