@@ -72,6 +72,8 @@ def deploy_runtime(ws_root: Path) -> Dict[str, Any]:
         if name.endswith(".sh"):
             dest.chmod(dest.stat().st_mode | 0o111)
 
+    write_workspace_readme(ws_root)
+
     try:
         tool_commit = subprocess.run(
             ["git", "-C", str(TOOL_ROOT), "rev-parse", "--short", "HEAD"],
@@ -97,3 +99,54 @@ def runtime_changed(ws_root: Path) -> bool:
     res = subprocess.run(["git", "-C", str(ws_root), "status", "--porcelain",
                           "runtime"], capture_output=True, text=True)
     return bool(res.stdout.strip())
+
+
+WORKSPACE_README = """# codegraph-workspace
+
+This repo is a **multi-repo-graph workspace**: it owns the list of indexed
+repositories, every indexed snapshot, and a self-contained runtime. You do
+NOT need the multi-repo-graph tool repo to use it.
+
+## Quick start
+
+    runtime/scripts/up.sh        # Windows: runtime/scripts/up.ps1
+                                  # (the shim only needs Python 3.11+)
+
+That restores the latest run and starts:
+
+  * graph viewer  — http://localhost:{viewer_port}
+  * Neo4j browser — http://localhost:{http_port}  (bolt :{bolt_port},
+    password in workspace.json settings.neo4j.password)
+  * MCP servers   — paste `runtime/config/mcp.json` into your
+    ZCode/Claude config (MFLens portfolio graph + codegraph fan-out)
+
+Also: `up.sh --run <id>` pins a snapshot, `--mode live` reads codegraph
+from working trees, `runtime/scripts/down.sh [--purge]` stops everything.
+Repo sources are checked out at the exact SHAs recorded in
+`runs/<id>/run-manifest.json`.
+
+## Contents
+
+    workspace.json   repos + settings (ports, keepLast, remote.push)
+    runs/<ts>/       snapshots (run-manifest, summary, neo4j + codegraph
+                     dumps, zstd, LFS); latest.json points at the newest
+    runtime/         viewer + MCP servers, pinned by runtime/VERSION
+    repos/           gitignored repo clones · snapshot/, logs/ gitignored
+
+Re-indexing is done by an operator with the multi-repo-graph tool:
+`python -m indexer.pipeline --workspace <this repo>`.
+"""
+
+
+def write_workspace_readme(ws_root: Path) -> None:
+    """Generate the consumption README from workspace.json settings."""
+    import json
+    settings = json.loads((ws_root / "workspace.json").read_text()) \
+        .get("settings", {})
+    neo4j = settings.get("neo4j", {})
+    text = WORKSPACE_README.format(
+        viewer_port=settings.get("viewerPort", 7600),
+        http_port=neo4j.get("httpPort", 7475),
+        bolt_port=neo4j.get("boltPort", 7688),
+    )
+    (ws_root / "README.md").write_text(text, encoding="utf-8")

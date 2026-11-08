@@ -1,67 +1,123 @@
 # multi-repo-graph
 
-Batch indexer that turns a manifest-listed set of cloned repositories into
-[codegraph](https://github.com/colbymchenry/codegraph) indexes (34 languages,
-tree-sitter based), a unified **Neo4j portfolio graph** (java-graph schema),
-and **timestamp-versioned snapshots** published into a
-**codegraph-workspace** — the single per-company repo users interact with.
+Batch indexer that turns a manifest-listed set of repositories into
+[codegraph](https://github.com/colbymchenry/codegraph) indexes (34
+languages, tree-sitter based), a unified **Neo4j portfolio code graph**
+(java-graph schema), and **timestamp-versioned snapshots** published into
+a per-company **codegraph-workspace** — the single repo everyone else
+consumes (viewer + two MCP servers included, no tool checkout needed).
 
-**This repo is the TOOL: source code only.** Runs write nothing here; every
-user (company) sets up a `codegraph-workspace` that owns the repo list, all
-snapshots, and a deployed runtime (viewer + MCP servers). Users never need
-this repo — see `docs/workspace-restructure.md`.
+**This repo is the TOOL: source code only — runs never write here.**
+Specifications: [docs/architecture.md](docs/architecture.md) ·
+workspace guide: [docs/workspace-reference.md](docs/workspace-reference.md) ·
+decisions: [docs/decisions.md](docs/decisions.md).
 
-## Layout
+## What you get
 
+- **Portfolio graph** (Neo4j): Repositories → Packages/Files → Types →
+  Methods/Fields, inheritance, imports, name-level CALLS with counts —
+  one graph across all repos, same-FQN types merge.
+- **Per-repo codegraph DBs**: routes, resolved callers, impact radius,
+  task context — per repo, kept next to the graph snapshot.
+- **Viewer**: constellation browser (packages/files modes) + Statistics
+  (inventory taxonomy, LOC breakdown, coverage).
+- **Two MCP servers**: MFLens (60+4-tool contract over the portfolio
+  graph, incl. `fileHashMatch` drift) and codegraph-portfolio (5 fan-out
+  tools over the codegraph DBs).
+- **Verified runs**: exact counts + sampled edge checks gate every run;
+  artifacts (dual Neo4j dumps + codegraph DBs, zstd, sha256'd) are
+  committed into the workspace with LFS.
+
+## Setup (tool, once per machine)
+
+```bash
+git clone <this repo> && cd multi-repo-graph
+cd indexer && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+(cd nodejs && npm install)                 # pinned @colbymchenry/codegraph
+# needs: docker, node >= 22.5, git, zstd; git-lfs where you push from
 ```
-indexer/                        the batch pipeline (stages 0–8)
-  pipeline.py                   orchestrator + CLI (--workspace …)
-  manifest.py / workspace.py    workspace.json + repo validation/clones
-  exporter.py + nodejs/         codegraph bulk API -> portfolio rows
-  ingest.py / verify.py         batched UNWIND ingest; count+sample checks
-  artifacts.py / publish.py     run dir, zstd artifacts, workspace commit
-  deploy.py + runtime_templates stage 8: runtime deploy; up.py/down.py
-  tests/                        offline units + gated e2e (MRG_E2E=1)
-mcp-server/                     MFLens MCP (60+4 tools; 128 offline + 8 multi-repo tests)
-codegraph-mcp/                  portfolio fan-out wrapper MCP (5 tools; 21 tests)
-graph-viewer/                   constellation viewer
-reference/java-indexer/         frozen java-graph copy (enhance base)
-docs/                           design.md, workspace-restructure.md, spike findings
-workspace.example.json          workspace format (repos + settings + remote)
+
+## Configuration — the workspace
+
+Everything run-specific lives in `<workspace>/workspace.json` (full
+reference: [docs/workspace-reference.md](docs/workspace-reference.md)):
+
+```json
+{
+  "repos": [
+    {"name": "my-service", "cloneUrl": "https://github.com/org/my-service.git",
+     "path": "repos/my-service", "shallow": true}
+  ],
+  "settings": {
+    "keepLast": 3,
+    "neo4j": {"boltPort": 7688, "httpPort": 7475,
+              "container": "mrg-neo4j-instance",
+              "password": "graphpassword123"},
+    "viewerPort": 7600
+  },
+  "remote": {"push": true}
+}
 ```
+
+- `repos[]` — non-empty, unique names; existing `path` must be a **clean**
+  git tree (build residue fails the run unless `--force-clean`); missing
+  path + `cloneUrl` → shallow clone. Docs-only repos are fine
+  (inventory-only in the graph).
+- Ports + `container` must be unique **per workspace** on a shared host.
+- `remote.push: true` pushes each run commit to the workspace origin
+  (install git-lfs first; artifacts are LFS-tracked).
 
 ## Usage
 
+**Index (operator):**
+
 ```bash
-# tool setup (once)
-cd indexer && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-(cd nodejs && npm install)
-
-# create a workspace (per company) — see workspace.example.json
-mkdir my-codegraph-workspace  # …add workspace.json…
-
-# run the pipeline: index -> graph -> snapshot -> runtime, all INTO the workspace
-indexer/.venv/bin/python -m indexer.pipeline --workspace /path/to/my-codegraph-workspace
-
-# consume (any user with a clone of the workspace — no tool repo needed)
-runtime/scripts/up.sh          # or up.ps1 on Windows
-#   -> neo4j (restored dump), codegraph DBs, viewer on :7600, MCP registration
-runtime/scripts/down.sh
+indexer/.venv/bin/python -m indexer.pipeline \
+  --workspace /path/to/codegraph-workspace        # or a git URL
+# options: --force-clean  --publish-dry-run  --concurrency N
 ```
 
-Exit code 0 only if every repo indexed, exported, ingested, verified, and
-published cleanly (docs/design.md §2). Scale target 100M LOC (D5); batch
-only, no watchers (D2); MFLens 60+4 contract unchanged (D7).
+Stages 0–8: validate → clones → codegraph index (worker pool) → export
+→ Neo4j ingest → verify → artifacts → publish+deploy. Exit 0 only if
+every repo indexed, ingested, verified, and published cleanly.
+
+**Consume (everyone else — only the workspace clone):**
+
+```bash
+runtime/scripts/up.sh          # Windows: up.ps1  (just needs Python 3.11+)
+#   → Neo4j restored, codegraph DBs + SHA-pinned repo checkouts, viewer up,
+#     runtime/config/mcp.json = ready-to-paste MCP registration
+runtime/scripts/down.sh [--purge]
+```
+
+- Viewer: `http://localhost:<viewerPort>` · Neo4j browser:
+  `http://localhost:<httpPort>` (password from settings)
+- MCPs: paste `runtime/config/mcp.json` into your ZCode/Claude config
+- Pin a snapshot: `up.sh --run 2026-11-08T22-13-41Z`; read codegraph from
+  working trees: `up.sh --mode live`
 
 ## Tests
 
 ```bash
-indexer/.venv/bin/python -m pytest                      # offline
-NEO4J_TEST_URI=bolt://localhost:7688 indexer/.venv/bin/python -m pytest \
-  indexer/tests/test_ingest_integration.py              # + neo4j integration
+indexer/.venv/bin/python -m pytest                 # offline (~60)
+NEO4J_TEST_URI=bolt://localhost:7688 \
+  indexer/.venv/bin/python -m pytest indexer/tests/test_ingest_integration.py
 MRG_E2E=1 indexer/.venv/bin/python -m pytest indexer/tests/test_workspace_e2e.py
+(cd mcp-server && .venv/bin/python -m pytest tests/)     # + NEO4J_TEST_URI
+(cd codegraph-mcp && .venv/bin/python -m pytest tests/)
+```
+
+## Layout
+
+```
+indexer/        pipeline stages 0–8 (Python + Node worker pool/exporter)
+mcp-server/     MFLens MCP (60+4 tools, unchanged java-graph contract)
+codegraph-mcp/  portfolio fan-out MCP (5 tools)
+graph-viewer/   constellation viewer + statistics
+docs/           spec, workspace reference, decisions, spike record, history
+reference/      frozen java-graph copy (provenance, read-only)
 ```
 
 ## License
 
-MIT © [Dmitri Prilepski](mailto:dmitri@vidukate.ai) — see [LICENSE](LICENSE).
+MIT © [Dmitri Prilepski](mailto:dmitri@vidukate.ai) — [LICENSE](LICENSE).

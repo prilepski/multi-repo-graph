@@ -9,11 +9,14 @@ live there (docs/workspace-restructure.md, approved + implemented).
 
 ## Read first
 
-1. `docs/design.md` — architecture, schema, scale plan, decisions D1–D7
-   (settled — do not relitigate without the user).
-2. `docs/workspace-restructure.md` — the tool/workspace split (approved,
-   decisions A–G recorded inline).
-3. `docs/verification-bulk-api.md` — O1 spike findings (exporter contract).
+1. `docs/architecture.md` — the specification (components, stages, data
+   model, verification, MCP surfaces).
+2. `docs/workspace-reference.md` — the workspace: workspace.json, runtime,
+   up/down lifecycle.
+3. `docs/decisions.md` — settled decision log (D1–D7, A–G, and the
+   implementation-forced ones) — do not relitigate without new evidence.
+4. `docs/verification-bulk-api.md` — O1 spike: codegraph bulk API + the
+   pinned schema fingerprint.
 
 ## Ground rules
 

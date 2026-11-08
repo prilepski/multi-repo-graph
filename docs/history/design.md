@@ -1,4 +1,4 @@
-# Design: multi-repo-indexer
+# Design (seeded, rev 1 — historical; current spec: ../architecture.md)
 
 Status: **implemented — first verified end-to-end run 2026-11-08** (both
 baseline repos: 2.55M LOC, all count metrics OK, 2,000/2,000 sampled edges,

@@ -1,6 +1,6 @@
 # Design: tool/workspace repo split
 
-Status: **approved + implemented 2026-11-08.** Decisions from review:
+Status: implemented — superseded by ../architecture.md + ../workspace-reference.md (kept for provenance). Decisions from review:
 A keep `multi-repo-graph`; B `codegraph-workspace`; C workspace always a git
 repo; D runtime deployed as source copies (`runtime/VERSION` pins the tool
 commit); F `repos/` clones live inside the workspace (gitignored). E (seed
