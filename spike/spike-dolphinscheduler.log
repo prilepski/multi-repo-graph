@@ -1,0 +1,76 @@
+{"event":"init","ms":20}
+{"event":"progress","phase":"scanning","current":0,"total":0}
+(node:24199) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:24199) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:24199) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:24199) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:24199) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:24199) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:24199) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:24199) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"event":"progress","phase":"resolving","current":25000,"total":172108}
+(node:24199) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"event":"indexAll","ms":11123,"result":{"success":true,"filesIndexed":3657,"filesSkipped":0,"filesErrored":0,"filesDiscovered":3657,"filesSkippedUnsupported":1154,"topUnsupportedExtensions":[{"ext":".png","count":448},{"ext":".md","count":358},{"ext":".txt","count":99},{"ext":".sql","count":74},{"ext":".sh","count":45}],"nodesCreated":69295,"edgesCreated":143654,"errors":[],"durationMs":2968}}
+{
+ "event": "stats",
+ "stats": {
+  "nodeCount": 69295,
+  "edgeCount": 143654,
+  "fileCount": 3657,
+  "nodesByKind": {
+   "class": 2480,
+   "constant": 3052,
+   "enum": 129,
+   "enum_member": 1102,
+   "field": 6039,
+   "file": 3432,
+   "function": 1963,
+   "import": 27499,
+   "interface": 621,
+   "method": 18436,
+   "module": 1,
+   "namespace": 2578,
+   "property": 1618,
+   "route": 239,
+   "type_alias": 37,
+   "variable": 69
+  },
+  "edgesByKind": {
+   "calls": 40496,
+   "contains": 64569,
+   "decorates": 389,
+   "extends": 679,
+   "implements": 429,
+   "imports": 13523,
+   "instantiates": 4064,
+   "references": 19505
+  },
+  "filesByLanguage": {
+   "java": 2580,
+   "javascript": 6,
+   "jsx": 1,
+   "properties": 11,
+   "python": 8,
+   "terraform": 22,
+   "tsx": 140,
+   "typescript": 439,
+   "xml": 236,
+   "yaml": 214
+  },
+  "dbSizeBytes": 220680192,
+  "walSizeBytes": 67108864,
+  "lastUpdated": 1794155735748
+ }
+}
+{"event":"meta","indexState":"complete","pendingReferences":0,"buildInfo":{"version":"1.6.2","extractionVersion":27},"journalMode":"wal","backend":"node-sqlite","detectedFrameworks":["express","react","vue-router","spring","terraform"]}
+{"event":"runtimeMethods","count":105,"methods":["ambientDeclarationFilePredicate","buildContext","clear","close","constructor","destroy","dropReadCaches","extractFromSource","findCircularDependencies","findDeadCode","findPath","findRelevantContext","findUsages","generatedFilePredicate","getAmbiguousReferencedNames","getAncestors","getBackend","getCallGraph","getCallees","getCallers","getChangedFiles","getChildren","getCode","getContext","getDetectedFrameworks","getExploreMissDiagnostics","getFanIn","getFanOut","getFile","getFileDependencies","getFileDependencyPairs","getFileDependentCounts","getFileDependents","getFileNodes","getFileReachCounts","getFiles","getFilesIndexedSince","getGeneratedFileCount","getImpactRadius","getIncomingEdges","getIncomingEdgesTo","getIndexBuildInfo","getIndexRevision","getIndexState","getJournalMode","getLanguagesWithExports","getLastIndexedAt","getModuleAggregation","getNode","getNodeMetrics","getNodesByIds","getNodesByKind","getNodesByName","getNodesByNamePrefix","getNodesByNameSubstring","getNodesByQualifiedName","getNodesInFile","getNodesInFiles","getOutgoingEdges","getOutgoingEdgesFrom","getPendingFiles","getPendingReferenceCount","getProjectNameTokens","getProjectRoot","getRoutingManifest","getSegmentMatches","getStats","getTopCallingFiles","getTopDependedOn","getTopRouteFile","getTypeHierarchy","getUnreferencedNodes","getUnresolvedNamesAmong","getUnresolvedReferencesFrom","getUnresolvedReferencesInFile","getUnresolvedSupertypeSourcesAmong","getWatcherDegradedReason","hasFilesUnder","healSegmentVocabIfEmpty","indexAll","indexFiles","isFreshlyRecreated","isIndexStale","isIndexedFileStateCurrent","isIndexing","isWatcherDegraded","isWatcherRecovering","isWatching","optimize","rearmWatcherAfterLockContention","rebuildNameSegmentVocab","reinitializeResolver","reopenIfReplaced","reopenReplacedDatabase","resolveReferences","resolveReferencesBatched","searchNodes","sync","traverse","uninitialize","unwatch","waitUntilWatcherReady","watch","wireLayers","wordsMatchingName"]}
+{"event":"done","totalMs":11155}
