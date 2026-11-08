@@ -1,0 +1,16 @@
+{
+  "repos": [
+    {
+      "name": "thingsboard",
+      "cloneUrl": "https://github.com/thingsboard/thingsboard.git",
+      "path": "repos/thingsboard",
+      "shallow": true
+    },
+    {
+      "name": "dolphinscheduler",
+      "cloneUrl": "https://github.com/apache/dolphinscheduler.git",
+      "path": "repos/dolphinscheduler",
+      "shallow": true
+    }
+  ]
+}

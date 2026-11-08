@@ -149,16 +149,49 @@ for (let i = 0; i < allIds.length; i += BATCH) {
 }
 
 // ---- owner finalization ---------------------------------------------------
+// java-ish: walk the qualifiedName path outward past enum-constant bodies
+// (enum X { CONST { methods } } — codegraph kinds CONST as enum_member, a
+// Field to us; java-graph attached such methods to the enum Type, so we do
+// too). Non-java: file's module type, overridden by contains edges below.
+const typePathsByFile = new Map();          // file -> Map(pathKey -> typeNode)
+const enumMemberPathsByFile = new Map();    // file -> Set(pathKey)
+for (const [, n] of typeNodes) {
+  if (!JAVAISH.has(n.language)) continue;
+  const m = typePathsByFile.get(n.filePath) || new Map();
+  m.set(segsOf(n).slice(1).join('::'), n);
+  typePathsByFile.set(n.filePath, m);
+}
+for (const [, n] of fieldNodes) {
+  if (n.kind !== 'enum_member' || !JAVAISH.has(n.language)) continue;
+  const m = enumMemberPathsByFile.get(n.filePath) || new Set();
+  m.add(segsOf(n).slice(1).join('::'));
+  enumMemberPathsByFile.set(n.filePath, m);
+}
+function javaOwnerOf(n) {
+  const s = segsOf(n);
+  const path = s.slice(1, -1);
+  while (path.length) {
+    const key = path.join('::');
+    const t = typePathsByFile.get(n.filePath)?.get(key);
+    if (t) return typeFqnOf(t);
+    if (enumMemberPathsByFile.get(n.filePath)?.has(key)) {
+      path.pop(); // enum-constant body — keep walking up to its enum Type
+      continue;
+    }
+    break;
+  }
+  if (s.length >= 3) return `${s[0]}.${s.slice(1, -1).join('.')}`;
+  return moduleTypeFqn(n.filePath);
+}
 const ownerFqn = new Map(); // member/type node id -> owning Type fqn
 for (const [id, n] of typeNodes) ownerFqn.set(id, typeFqnOf(n));
-for (const [id, n] of methodNodes) ownerFqn.set(id, provisionalOwner(n));
-for (const [id, n] of fieldNodes) ownerFqn.set(id, provisionalOwner(n));
-function provisionalOwner(n) {
-  const s = segsOf(n);
-  if (JAVAISH.has(n.language) && s.length >= 3) {
-    return `${s[0]}.${s.slice(1, -1).join('.')}`;
-  }
-  return moduleTypeFqn(n.filePath);
+for (const [id, n] of methodNodes) {
+  ownerFqn.set(id, JAVAISH.has(n.language) ? javaOwnerOf(n)
+                                           : moduleTypeFqn(n.filePath));
+}
+for (const [id, n] of fieldNodes) {
+  ownerFqn.set(id, JAVAISH.has(n.language) ? javaOwnerOf(n)
+                                           : moduleTypeFqn(n.filePath));
 }
 for (const [memberId, typeId] of containsOwner) {
   const m = methodNodes.get(memberId) || fieldNodes.get(memberId);

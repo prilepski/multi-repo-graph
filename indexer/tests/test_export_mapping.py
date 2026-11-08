@@ -38,6 +38,15 @@ class TestJavaMapping:
         assert run_id in methods
         assert methods[run_id]["return_type"].startswith("String")
 
+    def test_enum_constant_body_methods_attach_to_enum_type(self, fixture_export):
+        # HIGH.score()/LOW.score()/abstract score() all collapse onto the
+        # enum Type's Method id (java-graph id convention)
+        methods = {r["id"] for r in fixture_export["tables"]["methods"]}
+        assert "org.demo.Level#score/0" in methods
+        # and no method is orphaned on the enum CONSTANT
+        assert not any("Level.HIGH#" in mid or "Level.LOW#" in mid
+                       for mid in methods)
+
     def test_field(self, fixture_export):
         fields = by_fqn(fixture_export["tables"]["fields"])
         assert "org.demo.Service.count" in fields

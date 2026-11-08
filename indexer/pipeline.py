@@ -184,6 +184,13 @@ def main() -> None:
             log.error("  [-] %-20s indexing failed: %s", ready.spec.name,
                       str(res.get("error"))[:300])
             continue
+        stats = res.get("stats", {})
+        if not stats.get("fileCount"):
+            stage2_ok = False
+            log.error("  [-] %-20s index is empty after stage 2 "
+                      "(stats.fileCount=0) — wrong path or empty repo?",
+                      ready.spec.name)
+            continue
         try:
             exporter.check_schema_fingerprint(
                 manifest_mod.codegraph_db_path(ready.spec.path))

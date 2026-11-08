@@ -9,7 +9,11 @@ const repoPath = process.argv[2];
 const emit = (obj) => process.stdout.write(JSON.stringify(obj) + "\n");
 const t0 = Date.now();
 try {
-  const cg = await CodeGraph.init(repoPath);
+  // init() refuses an existing .codegraph/ — warm repos are opened and
+  // re-indexed (indexAll reconciles against the current tree)
+  const cg = CodeGraph.isInitialized(repoPath)
+    ? await CodeGraph.open(repoPath)
+    : await CodeGraph.init(repoPath);
   const result = await cg.indexAll({
     onProgress: (p) => process.stderr.write(
       JSON.stringify({ repo: repoPath, ...p }) + "\n"),

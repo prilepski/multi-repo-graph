@@ -171,7 +171,9 @@ class RepoReady:
 
 def ensure_repo(spec: RepoSpec, force_clean: bool = False) -> RepoReady:
     """Validate one repo entry: clone if missing, enforce a clean tree,
-    record HEAD sha. Raises ManifestError on refusal."""
+    record HEAD sha. Relative paths are resolved against the CWD here, so
+    every downstream stage (Node workers included) sees absolute paths."""
+    spec.path = spec.path.resolve()
     ready = RepoReady(spec=spec)
     if not spec.path.exists():
         if spec.clone_url is None:

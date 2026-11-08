@@ -169,9 +169,13 @@ class _Counts:
             "extends": len(self.extends), "implements": len(self.implements),
             "imports": len(self.imports), "calls": len(self.calls),
         }
-        duplicates = {t: self.raw[t] - exp[_metric_of(t)]
-                      for t in TABLE_ORDER if _metric_of(t) in exp
-                      and self.raw[t] > exp[_metric_of(t)]}
+        raw_by_metric: Dict[str, int] = {}
+        for table in TABLE_ORDER:
+            metric = _METRIC.get(table)
+            if metric:
+                raw_by_metric[metric] = raw_by_metric.get(metric, 0) + self.raw[table]
+        duplicates = {m: raw_by_metric[m] - exp[m]
+                      for m in raw_by_metric if raw_by_metric[m] > exp[m]}
         exp["duplicates_collapsed"] = sum(duplicates.values())
         exp["duplicates_by_metric"] = duplicates
         return exp

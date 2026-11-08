@@ -62,6 +62,22 @@ TS_HELPER = """export function helper(): number {
 }
 """
 
+# enum-constant class bodies: methods belong to the enum Type (java-graph
+# semantics), not to the constant (which codegraph kinds as enum_member)
+JAVA_LEVELS = """package org.demo;
+
+public enum Level {
+    HIGH {
+        public int score() { return 3; }
+    },
+    LOW {
+        public int score() { return 1; }
+    };
+
+    public abstract int score();
+}
+"""
+
 
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", "-c", "user.email=t@example.com", "-c",
@@ -79,6 +95,7 @@ def fixture_repo(tmp_path: Path) -> Path:
     other = root / "src/main/java/org/other"
     other.mkdir(parents=True)
     (other / "Thing.java").write_text(JAVA_THING)
+    (java / "Level.java").write_text(JAVA_LEVELS)
     ts = root / "ui/src"
     ts.mkdir(parents=True)
     (ts / "util.ts").write_text(TS_UTIL)

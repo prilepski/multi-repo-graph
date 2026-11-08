@@ -47,16 +47,20 @@ class ExportError(Exception):
 
 
 def schema_fingerprint(db_path: Path) -> str:
+    """sha256 over sqlite_master: 'type:name' for non-table objects,
+    'name(col,...)' for tables (the algorithm the O1 spike measured and
+    docs/verification-bulk-api.md records — keep the three in lockstep)."""
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
         parts: List[str] = []
         for typ, name in conn.execute(
                 "SELECT type, name FROM sqlite_master "
                 "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"):
-            parts.append(f"{typ}:{name}")
             if typ == "table":
                 cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{name}")')]
                 parts.append(f"{name}({','.join(cols)})")
+            else:
+                parts.append(f"{typ}:{name}")
     finally:
         conn.close()
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()
