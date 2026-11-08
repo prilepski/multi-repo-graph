@@ -109,8 +109,9 @@ class Api:
     def integrations(self):
         """Cross-repo (:Repository)-[:INTEGRATES {refs, files}]->() edges,
         derived from name references in the indexed sources."""
+        import json as _json
         with self.driver.session() as s:
-            return [dict(r) for r in s.run("""
+            out = [dict(r) for r in s.run("""
                 MATCH (a:Repository)-[r:INTEGRATES]->(b:Repository)
                 RETURN a.name AS src, elementId(a) AS srcEid,
                        b.name AS dst, elementId(b) AS dstEid,
@@ -118,8 +119,7 @@ class Api:
                        r.samples AS samples
                 ORDER BY refs DESC
             """)]
-        import json as _json
-        for row in out:
+        for row in out:  # samples are stored as a JSON string (neo4j props)
             if isinstance(row.get("samples"), str):
                 try:
                     row["samples"] = _json.loads(row["samples"])
