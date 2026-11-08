@@ -33,6 +33,8 @@ snapshot/
 logs/
 runtime/.venv*/
 runtime/codegraph-mcp/node_modules/
+runtime/codegraph-mcp/package-lock.json
+runtime/config/
 __pycache__/
 .pytest_cache/
 .venv/
