@@ -11,6 +11,7 @@ Endpoints:
 """
 
 import json
+import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -18,9 +19,12 @@ from urllib.parse import parse_qs, urlparse
 
 from neo4j import GraphDatabase
 
-NEO4J_URI = "bolt://localhost:7687"
-NEO4J_PASSWORD = "graphpassword123"
-PORT = 7600
+# multi-repo-graph default: this project's own container (mrg-neo4j-instance,
+# bolt 7688) — override with env vars to point elsewhere (e.g. java-graph's
+# scip-neo4j-instance on 7687).
+NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7688")
+NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "graphpassword123")
+PORT = int(os.environ.get("PORT", "7600"))
 MAX_CHILDREN = 500
 MAX_NEIGHBORS_PER_DIRECTION = 150
 

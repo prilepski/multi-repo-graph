@@ -40,18 +40,31 @@ def repo_name():
 
 @pytest.fixture()
 def ingested(driver, indexed_fixture, repo_name):
-    """Ingest the fixture twice (idempotency); cleans up on teardown."""
+    """Ingest the fixture twice (idempotency); cleans up on teardown.
+
+    Cleanup must catch EVERY node shape the fixture creates: Files and
+    module-scoped symbols carry the repo prefix in id/fqn, but java symbols
+    use org.demo./org.other. FQNs — the container DB is the live portfolio
+    graph, so leaving them pollutes the viewer and the next dump. Shared
+    nodes a real portfolio also creates (java.util.Map, common CallTarget
+    names) are deliberately NOT deleted."""
     ingest.init_neo4j_schema(driver)
     expected = None
     for _ in range(2):
         exp = exporter.RepoExport(repo_name, indexed_fixture)
         expected = ingest.ingest_repo(driver, repo_name, exp.rows())
     yield expected
+    prefix = f"{repo_name}:"
     with driver.session() as s:
-        # our nodes carry repo-prefixed ids or hang off this Repository
-        s.run("MATCH (n) WHERE n.id STARTS WITH $p DETACH DELETE n",
-              p=f"{repo_name}:")
         s.run("MATCH (r:Repository {name: $r}) DETACH DELETE r", r=repo_name)
+        s.run("MATCH (f:File) WHERE f.id STARTS WITH $p DETACH DELETE f", p=prefix)
+        s.run("""MATCH (n) WHERE n.fqn IS NOT NULL AND (
+                     n.fqn STARTS WITH 'org.demo.' OR n.fqn STARTS WITH 'org.other.'
+                     OR n.fqn STARTS WITH $p) DETACH DELETE n""", p=prefix)
+        s.run("""MATCH (m:Method) WHERE m.id STARTS WITH 'org.demo.'
+                     OR m.id STARTS WITH 'org.other.'
+                     OR m.id STARTS WITH $p DETACH DELETE m""", p=prefix)
+        s.run("MATCH (ct:CallTarget {name: 'unknownExternalFn'}) DETACH DELETE ct")
 
 
 def test_ingest_twice_idempotent(driver, ingested, repo_name):
