@@ -98,48 +98,50 @@ def git_tracked_files(repo_path: Path) -> List[str]:
 def scan_file_rows(repo_name: str, repo_path: Path,
                    tracked: Optional[List[str]] = None
                    ) -> Iterator[Tuple[str, Dict[str, Any]]]:
-    """Yield ("files", row) for every git-tracked file, with OUR sha256 and
-    line count (binary files: totalLines None). Single pass per file."""
+    """Yield ("files", row) for every git-tracked file — OUR sha256 (of the
+    utf-8-decoded/re-encoded text, matching the MFLens drift contract),
+    inventory taxonomy (kind/category/role, java-graph rule table) and LOC
+    breakdown (binaries get no line counts). Single pass per file."""
+    from . import inventory as inv
     for rel in tracked if tracked is not None else git_tracked_files(repo_path):
         path = repo_path / rel
         if not path.is_file():
             # submodule gitlinks and deleted-in-worktree entries: not files
             continue
-        sha = hashlib.sha256()
-        lines = 0
-        is_text = True
-        size = 0
-        last_byte = b""
-        try:
-            with open(path, "rb") as f:
-                head = f.read(8192)
-                is_text = b"\0" not in head
-                sha.update(head)
-                size += len(head)
-                if is_text:
-                    lines += head.count(b"\n")
-                    last_byte = head[-1:] if head else b""
-                while True:
-                    chunk = f.read(1 << 20)
-                    if not chunk:
-                        break
-                    sha.update(chunk)
-                    size += len(chunk)
-                    if is_text:
-                        lines += chunk.count(b"\n")
-                        last_byte = chunk[-1:]
-            if is_text and size and last_byte != b"\n":
-                lines += 1  # final line without trailing newline
-        except OSError as e:
-            raise ExportError(f"{repo_name}: cannot read tracked file {rel}: {e}") from e
-        yield ("files", {
+        meta = inv.classify(rel)
+        row: Dict[str, Any] = {
             "repo": repo_name,
             "id": f"{repo_name}:{rel}",
             "path": rel,
-            "sha256": sha.hexdigest(),
-            "totalLines": lines if is_text else None,
-            "bytes": size,
-        })
+            "sha256": None,
+            "extension": meta["extension"],
+            "kind": meta["kind"],
+            "category": meta["category"],
+            "role": meta["role"],
+            "bytes": 0,
+            "totalLines": None, "codeLines": None,
+            "commentLines": None, "blankLines": None,
+        }
+        try:
+            data = path.read_bytes()
+        except OSError as e:
+            raise ExportError(
+                f"{repo_name}: cannot read tracked file {rel}: {e}") from e
+        row["bytes"] = len(data)
+        if meta["category"] in inv.BINARY_CATEGORIES or b"\0" in data[:8192]:
+            row["sha256"] = hashlib.sha256(data).hexdigest()
+            if meta["category"] not in inv.BINARY_CATEGORIES:
+                row["category"] = "binary_blob"
+            row["kind"] = ("assets" if row["category"] in ("image", "font")
+                           else "artifact")
+        else:
+            text = data.decode("utf-8", errors="replace")
+            row["sha256"] = hashlib.sha256(
+                text.encode("utf-8", "replace")).hexdigest()
+            counts = inv.count_lines(text, meta["category"], meta["extension"])
+            if counts:
+                row.update(counts)
+        yield ("files", row)
 
 
 # ---------------------------------------------------------------------------
@@ -149,19 +151,37 @@ def scan_file_rows(repo_name: str, repo_path: Path,
 class RepoExport:
     """Streaming export of one repo. Iterate `.rows()` (exactly once) — the
     final row set is followed by `.counts` (codegraph's own stats + the
-    exporter's row totals) and `.loc` (total lines over tracked text files)."""
+    exporter's row totals), `.loc` (total lines over tracked text files) and
+    `.inventory` ({coverage, categories} for the StatsSnapshot phase)."""
 
     def __init__(self, repo_name: str, repo_path: Path):
         self.repo_name = repo_name
         self.repo_path = repo_path
         self.counts: Dict[str, Any] = {}
         self.loc = 0
+        self.inventory: Dict[str, Any] = {}
 
     def rows(self) -> Iterator[Tuple[str, Dict[str, Any]]]:
+        from . import inventory as inv
         self.loc = 0
+        cats: Dict[Tuple[str, str], Dict[str, int]] = {}
+        tracked = binaries = unreadable = 0
         for table, row in scan_file_rows(self.repo_name, self.repo_path):
+            tracked += 1
             if row["totalLines"]:
                 self.loc += row["totalLines"]
+            if row["kind"] == "artifact" or row["category"] in inv.BINARY_CATEGORIES:
+                binaries += 1
+            if row["category"] == "unreadable":
+                unreadable += 1
+            agg = cats.setdefault((row["kind"], row["category"]),
+                                  {"files": 0, "bytes": 0, "totalLines": 0,
+                                   "codeLines": 0, "commentLines": 0,
+                                   "blankLines": 0})
+            agg["files"] += 1
+            agg["bytes"] += row["bytes"]
+            for k in ("totalLines", "codeLines", "commentLines", "blankLines"):
+                agg[k] += row[k] or 0
             yield table, row
 
         proc = subprocess.Popen(
@@ -193,6 +213,23 @@ class RepoExport:
                 f"{self.repo_name}: export.mjs exited {code}: {stderr.strip()[:800]}")
         if not self.counts:
             raise ExportError(f"{self.repo_name}: export.mjs produced no counts line")
+
+        # inventory summary (coverage + category rollups) for StatsSnapshot
+        on_disk = sum(1 for p in self.repo_path.rglob("*")
+                      if p.is_file() and ".git" not in p.parts)
+        deep = int(self.counts.get("stats", {}).get("fileCount", 0) or 0)
+        self.inventory = {
+            "coverage": {
+                "filesTracked": tracked,
+                "filesOnDisk": on_disk,
+                "untrackedFiles": max(0, on_disk - tracked),
+                "filesIndexedDeep": deep,
+                "filesInventoryOnly": max(0, tracked - deep - unreadable),
+                "binaries": binaries,
+            },
+            "categories": [{"kind": k, "category": c, **v}
+                           for (k, c), v in sorted(cats.items())],
+        }
 
 
 class RowSampler:

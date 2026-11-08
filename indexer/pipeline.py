@@ -245,6 +245,12 @@ def main() -> None:
                 continue
             log.info("  [+] export+ingest %.1fs", time.monotonic() - t34)
 
+            # inventory snapshot (viewer Statistics pane)
+            ingest.ingest_stats_snapshot(driver, name, run_id,
+                                         repo_export.inventory)
+            inv_verification = ingest.verify_inventory(
+                driver, name, repo_export.inventory)
+
             log.info("[*] Stage 5 (%s): verifying graph contents...", name)
             actual = verify.verify_repo_in_graph(driver, name)
             validation = verify.diff_counts(expected, actual)
@@ -254,9 +260,12 @@ def main() -> None:
                 mark = "OK " if v["ok"] else "MISMATCH"
                 log.info("    %s %-11s expected=%-8d actual=%-8d", mark, metric,
                          v["expected"], v["actual"])
+            repo_ok = repo_ok and inv_verification["filesMatch"] \
+                and inv_verification["categorySumsMatch"]
             report.update(status="ok" if repo_ok else "mismatch",
                           extracted=expected, graph=actual, validation=validation,
                           sampled=sampled, loc=repo_export.loc,
+                          inventory=repo_export.inventory,
                           indexStats={k: index_results[name].get(k) for k in
                                       ("filesIndexed", "nodesCreated",
                                        "edgesCreated", "ms")},

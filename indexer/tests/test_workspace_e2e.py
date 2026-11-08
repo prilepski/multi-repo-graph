@@ -115,10 +115,22 @@ def test_neo4j_restored_from_workspace(up):
     assert "org.e2e.Widget" in types
 
 
+def _get(path: str):
+    """127.0.0.1 (viewer binds IPv4; localhost can resolve ::1 first) with
+    a short retry for the viewer's slow first-bind."""
+    import time
+    url = f"http://127.0.0.1:{E2E_PORTS['viewer']}{path}"
+    for _ in range(10):
+        try:
+            with urllib.request.urlopen(url, timeout=10) as r:
+                return json.load(r)
+        except (ConnectionError, urllib.error.URLError):
+            time.sleep(1)
+    raise AssertionError(f"viewer not reachable at {url}")
+
+
 def test_viewer_served_from_workspace(up):
-    with urllib.request.urlopen(
-            f"http://localhost:{E2E_PORTS['viewer']}/api/root", timeout=10) as r:
-        root = json.load(r)
+    root = _get("/api/root")
     assert [x["name"] for x in root] == ["fixture"]
 
 
@@ -153,3 +165,27 @@ def test_codegraph_fanout_from_snapshot(up):
     assert out["repos"] == ["fixture"]
     hits = [h["name"] for r in out["results"] for h in r.get("hits", [])]
     assert "Widget" in hits
+
+
+def test_statistics_pane_populated(up):
+    """The viewer's Statistics surface reads the inventory layer: taxonomy
+    categories, LOC breakdown, coverage snapshot — no nulls."""
+    import urllib.parse
+    base = f"http://127.0.0.1:{E2E_PORTS['viewer']}/api/stats"
+    rows = _get(f"/api/stats/categories?{urllib.parse.urlencode({'repo': 'fixture'})}")
+    assert rows, "category stats must not be empty"
+    by_cat = {row["category"]: row for row in rows}
+    assert "java_backend" in by_cat
+    jb = by_cat["java_backend"]
+    assert jb["kind"] == "source" and jb["files"] >= 1
+    assert jb["codeLines"] >= 1
+    assert jb["totalLines"] == (jb["codeLines"] + jb["commentLines"]
+                                + jb["blankLines"])
+    kpis = _get(f"/api/stats/overview?{urllib.parse.urlencode({'repo': 'fixture'})}")["kpis"]
+    assert kpis["tracked"] >= 1 and kpis["deep"] >= 1
+    assert kpis["totalLines"] >= 1 and kpis["codeLines"] >= 1
+    # coverage snapshot (StatsSnapshot) is present in the unscoped overview
+    repos = _get("/api/stats/overview")["repos"]
+    entry = next(r for r in repos if r["repository"] == "fixture")
+    assert entry["coverage"], "StatsSnapshot coverage must exist"
+    assert entry["coverage"]["filesTracked"] == kpis["tracked"]

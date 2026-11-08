@@ -43,7 +43,11 @@ CYPHER = {
         MATCH (r:Repository {name: row.repo})
         MERGE (f:File {id: row.id})
         SET f.path = row.path, f.sha256 = row.sha256,
-            f.totalLines = row.totalLines, f.bytes = row.bytes
+            f.totalLines = row.totalLines, f.bytes = row.bytes,
+            f.extension = row.extension, f.kind = row.kind,
+            f.category = row.category, f.role = row.role,
+            f.codeLines = row.codeLines, f.commentLines = row.commentLines,
+            f.blankLines = row.blankLines
         MERGE (r)-[:CONTAINS]->(f)
     """,
     "packages": """
@@ -231,3 +235,72 @@ def ingest_repo(driver: Any, repo_name: str,
              exp["files"], exp["types"], exp["methods"], exp["fields"],
              exp["extends"], exp["implements"], exp["imports"], exp["calls"])
     return exp
+
+
+# ---------------------------------------------------------------------------
+# inventory snapshots (java-graph's StatsSnapshot pattern, retention: 2)
+# ---------------------------------------------------------------------------
+
+def ingest_stats_snapshot(driver: Any, repo_name: str, run_id: str,
+                          inventory: Dict[str, Any]) -> None:
+    """Materialize (:StatsSnapshot)-[:COVERS]->(Repository) with coverage
+    props and (:CategoryStat) rollups; prune beyond the last 2 snapshots."""
+    from datetime import datetime, timezone
+    coverage = inventory["coverage"]
+    sid = f"{run_id}:{repo_name}"
+    cat_rows = inventory["categories"]
+    with driver.session() as session:
+        session.run("""
+            MATCH (r:Repository {name: $name})
+            CREATE (s:StatsSnapshot {sid: $sid, runId: $runId, at: $at})
+            CREATE (s)-[:COVERS $cov]->(r)
+        """, name=repo_name, sid=sid, runId=run_id,
+            at=datetime.now(timezone.utc).isoformat(), cov=coverage)
+        for chunk in chunks(cat_rows, 200):
+            session.run("""
+                UNWIND $batch AS row
+                MATCH (s:StatsSnapshot {sid: $sid})
+                CREATE (cs:CategoryStat {
+                    kind: row.kind, category: row.category, files: row.files,
+                    bytes: row.bytes, totalLines: row.totalLines,
+                    codeLines: row.codeLines, commentLines: row.commentLines,
+                    blankLines: row.blankLines})
+                CREATE (s)-[:HAS_STAT]->(cs)
+            """, batch=chunk, sid=sid)
+        session.run("""
+            MATCH (s:StatsSnapshot)-[:COVERS]->(:Repository {name: $repo})
+            WITH s ORDER BY s.at DESC SKIP 2
+            OPTIONAL MATCH (s)-[:HAS_STAT]->(cs)
+            DETACH DELETE cs, s
+        """, repo=repo_name)
+    log.info("  [+] StatsSnapshot %s: %d categories; coverage: %s", sid,
+             len(cat_rows),
+             ", ".join(f"{k}={v}" for k, v in coverage.items()))
+
+
+def verify_inventory(driver: Any, repo_name: str,
+                     inventory: Dict[str, Any]) -> Dict[str, Any]:
+    """Snapshot verification (java-graph rule): file counts match the graph,
+    category sums match the tracked total."""
+    coverage = inventory["coverage"]
+    with driver.session() as session:
+        files_in_graph = session.run(
+            "MATCH (:Repository {name: $n})-[:CONTAINS]->(f:File) "
+            "RETURN count(f) AS c", n=repo_name).single()["c"]
+        cat_files_sum = session.run("""
+            MATCH (s:StatsSnapshot)-[:COVERS]->(:Repository {name: $n})
+            WITH s ORDER BY s.at DESC LIMIT 1
+            MATCH (s)-[:HAS_STAT]->(cs)
+            RETURN sum(cs.files) AS c
+        """, n=repo_name).single()["c"]
+    result = {
+        "filesTracked": coverage["filesTracked"],
+        "filesInGraph": files_in_graph,
+        "filesMatch": files_in_graph == coverage["filesTracked"],
+        "categorySumsMatch": cat_files_sum == coverage["filesTracked"],
+    }
+    ok = result["filesMatch"] and result["categorySumsMatch"]
+    log.info("    %s inventory files=%d/%d category-sums=%s",
+             "OK " if ok else "MISMATCH", files_in_graph,
+             coverage["filesTracked"], result["categorySumsMatch"])
+    return result

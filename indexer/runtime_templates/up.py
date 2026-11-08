@@ -124,10 +124,14 @@ def ensure_codegraph_sdk() -> None:
 def restore_neo4j(dump_zst: Path, bolt_port: int, http_port: int,
                   password: str) -> None:
     import zstandard
+    # decompress into gitignored snapshot/ — NEVER next to the .zst files
+    # (runs/ is committed content; raw dumps must not land there)
     log("decompressing neo4j dumps …")
-    dumps_dir = dump_zst.parent
-    for zst in sorted(dumps_dir.glob("*.dump.zst")):
-        with open(zst, "rb") as src, open(zst.with_suffix(""), "wb") as dst:
+    dumps_dir = WS / "snapshot" / "neo4j-dumps"
+    dumps_dir.mkdir(parents=True, exist_ok=True)
+    for zst in sorted(dump_zst.parent.glob("*.dump.zst")):
+        with open(zst, "rb") as src, \
+             open(dumps_dir / zst.name.removesuffix(".zst"), "wb") as dst:
             zstandard.ZstdDecompressor().copy_stream(src, dst)
 
     log("recreating neo4j volume + container …")
