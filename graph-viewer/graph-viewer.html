@@ -581,6 +581,10 @@ window.addEventListener("mousemove", (e) => {
 });
 window.addEventListener("mouseup", () => { panning = null; svg.classList.remove("panning"); });
 wrap.addEventListener("wheel", (e) => {
+  // scrollable panels layered on the canvas (#stats-pane covers the whole
+  // viewport in Statistics mode, #details is the popup) must scroll
+  // themselves — don't hijack their wheel events for canvas zoom
+  if (e.target.closest("#stats-pane, #details, #search-drop")) return;
   e.preventDefault();
   const k = Math.min(4, Math.max(0.15, view.k * (e.deltaY < 0 ? 1.12 : 0.89)));
   const rect = wrap.getBoundingClientRect();
