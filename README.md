@@ -38,7 +38,8 @@ indexer/                        the batch pipeline (stages 0–7)
   publish.py                    stage 7: local folder | GitHub store (+retention)
   tests/                        offline unit + Neo4j integration tests
 reference/java-indexer/         frozen copy of java-graph's pipeline (enhance base)
-mcp-server/                     MFLens MCP (60+4 tools) — future snapshot consumer
+mcp-server/                     MFLens MCP (60+4 tools; 128 offline + 8 multi-repo tests)
+codegraph-mcp/                  portfolio fan-out wrapper MCP (5 tools; 21 tests)
 graph-viewer/                   constellation viewer — future snapshot consumer
 spike/                          O1 spike (scripts + pinned package-lock)
 repos/                          cloned repos (gitignored)

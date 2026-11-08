@@ -133,16 +133,26 @@ class Neo4jBackend:
     # -- lookups ------------------------------------------------------------
 
     def _resolve_type(self, program: str) -> Optional[dict]:
-        """Resolve a program by simple name or FQN (prefer declared types)."""
+        """Resolve a program by simple name or FQN (prefer declared types).
+
+        multi-repo-graph fix: `repo` previously came from
+        Repository→Package→Type, but Package nodes MERGE across repos in a
+        portfolio (org.acme in repo A and repo B is ONE node), so a type
+        could be attributed to a repo whose tree doesn't contain its file —
+        source reads then failed (FileNotFoundError). repo now comes from the
+        DEFINES File's repo-prefixed id, so file/sha256/repo are always the
+        same declaration. java-graph never hit this: its two repos had
+        disjoint package namespaces."""
         with self.driver.session() as s:
             rec = s.run("""
                 MATCH (t:Type)
                 WHERE t.name = $p OR t.fqn = $p
+                OPTIONAL MATCH (f:File)-[:DEFINES]->(t)
+                WITH t, f ORDER BY t.external ASC, t.fqn, f.id LIMIT 1
                 RETURN t.fqn AS fqn, t.name AS name, t.kind AS kind,
-                       [(f:File)-[:DEFINES]->(t) | f.path][0] AS file,
-                       [(f:File)-[:DEFINES]->(t) | f.sha256][0] AS sha256,
-                       [(r:Repository)-[:CONTAINS]->(pac:Package)-[:CONTAINS]->(t) | r.name][0] AS repo
-                ORDER BY t.external ASC, t.fqn LIMIT 1
+                       f.path AS file, f.sha256 AS sha256,
+                       (CASE WHEN f.id IS NULL THEN null
+                             ELSE split(f.id, ':')[0] END) AS repo
             """, p=program).single()
             return dict(rec) if rec else None
 
@@ -152,7 +162,7 @@ class Neo4jBackend:
                 MATCH (t:Type {external: false})
                 WHERE t.name = $n OR t.fqn = $n OR t.name STARTS WITH $n
                 RETURN t.name AS name, t.fqn AS fqn, t.kind AS kind,
-                       [(r:Repository)-[:CONTAINS]->(:Package)-[:CONTAINS]->(t) | r.name][0] AS repo,
+                       [(f:File)-[:DEFINES]->(t) | split(f.id, ':')[0]][0] AS repo,
                        t.external = false AS ok
                 ORDER BY t.fqn LIMIT 25
             """, n=name)]
@@ -163,7 +173,7 @@ class Neo4jBackend:
                 MATCH (t:Type {external: false})
                 WHERE t.name STARTS WITH $p
                 RETURN t.name AS name, t.fqn AS fqn, t.kind AS kind,
-                       [(r:Repository)-[:CONTAINS]->(:Package)-[:CONTAINS]->(t) | r.name][0] AS repo,
+                       [(f:File)-[:DEFINES]->(t) | split(f.id, ':')[0]][0] AS repo,
                        true AS ok
                 ORDER BY t.fqn LIMIT 50
             """, p=prefix)]

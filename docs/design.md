@@ -276,9 +276,12 @@ real run; everything below is then extrapolated ×~100.
 - **Snapshot-to-local runner**: fetch a run from the store, restore the Neo4j
   dump into a local container, decompress codegraph DBs, start the MFLens
   MCP and graph-viewer against them.
-- **Codegraph-compliant portfolio MCP**: fan-out wrapper over the per-repo
-  codegraph DBs from a snapshot (search/callers/impact/explore across all
-  repos); complements — never replaces — the MFLens 60+4 contract.
+- **Codegraph-compliant portfolio MCP** — ✅ **implemented 2026-11-08**
+  (`codegraph-mcp/`): fan-out wrapper over the per-repo codegraph DBs
+  (search/callers/impact/explore across all repos, 5 tools + 21 tests);
+  complements — never replaces — the MFLens 60+4 contract. Reads the
+  working-tree `.codegraph/` indexes for now; pointed at snapshot copies
+  once the runner below exists.
 - **Inventory/stats layer** port (java-graph `inventory.py` + its design doc).
 
 ## Decisions log

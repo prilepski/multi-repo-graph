@@ -1,0 +1,4 @@
+[
+  {"name": "thingsboard", "path": "../repos/thingsboard"},
+  {"name": "dolphinscheduler", "path": "../repos/dolphinscheduler"}
+]
