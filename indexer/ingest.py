@@ -304,3 +304,34 @@ def verify_inventory(driver: Any, repo_name: str,
              "OK " if ok else "MISMATCH", files_in_graph,
              coverage["filesTracked"], result["categorySumsMatch"])
     return result
+
+
+# ---------------------------------------------------------------------------
+# cross-repo integrations (ADDITIVE to the D7 schema; evidence-derived)
+# ---------------------------------------------------------------------------
+
+INTEGRATES_CYPHER = """
+    UNWIND $batch AS row
+    MATCH (a:Repository {name: $src})
+    MATCH (b:Repository {name: row.target})
+    MERGE (a)-[r:INTEGRATES]->(b)
+    SET r.refs = row.refs, r.files = row.files, r.samples = row.samples
+"""
+
+
+def ingest_integrations(driver: Any, repo_name: str,
+                        integrations: List[Dict[str, Any]]) -> int:
+    """(:Repository)-[:INTEGRATES {refs, files, samples}]->(:Repository),
+    derived from cross-repo name references (integrations.py). Returns
+    the number of edges written."""
+    if not integrations:
+        return 0
+    import json as _json
+    rows = [{**i, "samples": _json.dumps(i["samples"])}  # neo4j props are primitives
+            for i in integrations]
+    with driver.session() as session:
+        session.run(INTEGRATES_CYPHER, batch=rows, src=repo_name)
+    log.info("  [+] INTEGRATES from %s: %s", repo_name,
+             ", ".join(f"{i['target']} ({i['refs']} refs)"
+                       for i in integrations))
+    return len(integrations)

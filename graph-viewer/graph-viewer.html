@@ -47,6 +47,7 @@
   }
   #tree .tree-head span { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
   #tree ul { list-style: none; overflow: auto; padding: 6px 4px; flex: 1; }
+  .edge.integlink { stroke: #e8b64c; stroke-dasharray: 6 5; }
   #tree li .row {
     display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 5px;
     cursor: pointer; white-space: nowrap; user-select: none;
@@ -444,7 +445,7 @@ function radialLayout(focusName, items, W, H) {
   return positions;
 }
 
-function renderRootOverview(roots) {
+async function renderRootOverview(roots) {
   const vp = document.getElementById("viewport");
   vp.innerHTML = "";
   const W = wrap.clientWidth, H = wrap.clientHeight;
@@ -456,8 +457,27 @@ function renderRootOverview(roots) {
       y: H / 2 + Math.min(W, H) * 0.25 * Math.sin(a),
     };
   });
+  // cross-repo integration edges: dashed chords, weight by refs
+  let integrations = [];
+  try { integrations = await api("/api/integrations"); } catch (e) {}
+  const maxRefs = Math.max(1, ...integrations.map(i => i.refs));
+  for (const it of integrations) {
+    const p1 = positions[it.srcEid], p2 = positions[it.dstEid];
+    if (!p1 || !p2) continue;
+    const w = 0.8 + 2.6 * (it.refs / maxRefs);
+    const line = svgEl("line", {
+      x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
+      class: "edge integlink",
+      "stroke-width": w, opacity: 0.35 + 0.5 * (it.refs / maxRefs),
+    });
+    const t = svgEl("title", {});
+    t.textContent = `${it.src} → ${it.dst} · ${it.refs} refs (${it.files} files)`;
+    line.appendChild(t);
+    vp.appendChild(line);
+  }
   for (const r of roots) drawNode(vp, r, positions[r.eid], false);
   fitView(roots, positions);
+  if (integrations.length) toast(integrations.length + " cross-repo integration links (dashed)");
 }
 
 function renderNeighborhood(data) {
@@ -638,7 +658,7 @@ async function loadRootOverview() {
   document.getElementById("crumb").textContent = "Repositories";
   treeUl.innerHTML = "";
   for (const r of roots) treeUl.appendChild(treeRow(r));
-  renderRootOverview(roots);
+  await renderRootOverview(roots);
 }
 
 async function switchMode(mode) {

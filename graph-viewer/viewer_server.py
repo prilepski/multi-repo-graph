@@ -106,6 +106,27 @@ class Api:
                 ORDER BY depth DESC
             """, eid=eid)]
 
+    def integrations(self):
+        """Cross-repo (:Repository)-[:INTEGRATES {refs, files}]->() edges,
+        derived from name references in the indexed sources."""
+        with self.driver.session() as s:
+            return [dict(r) for r in s.run("""
+                MATCH (a:Repository)-[r:INTEGRATES]->(b:Repository)
+                RETURN a.name AS src, elementId(a) AS srcEid,
+                       b.name AS dst, elementId(b) AS dstEid,
+                       r.refs AS refs, r.files AS files,
+                       r.samples AS samples
+                ORDER BY refs DESC
+            """)]
+        import json as _json
+        for row in out:
+            if isinstance(row.get("samples"), str):
+                try:
+                    row["samples"] = _json.loads(row["samples"])
+                except ValueError:
+                    row["samples"] = []
+        return out
+
     def neighborhood(self, eid, depth=1, mode="packages"):
         """1-hop neighborhood of a node; depth 2 additionally expands Type
         neighbors with their EXTENDS/IMPLEMENTS links (cross-file class links).
@@ -121,6 +142,21 @@ class Api:
             focus = dict(rec)
             nodes: dict = {}
             edges: list = []
+
+            # integrations first: a Repository's cross-repo links must not
+            # drown under the child cap (children can hit MAX_NEIGHBORS)
+            if focus["label"] == "Repository":
+                for r in s.run("""
+                    MATCH (n) WHERE elementId(n) = $eid
+                    MATCH (n)-[r:INTEGRATES]->(m:Repository)
+                    RETURN type(r) AS rel, elementId(m) AS eid,
+                           labels(m)[0] AS label, m.name AS name, NULL AS kind
+                """, eid=eid):
+                    n = {k: r[k] for k in ("eid", "label", "name", "kind")}
+                    if n["eid"] != focus["eid"] and n["eid"] not in nodes:
+                        nodes[n["eid"]] = n
+                    edges.append({"src": focus["eid"], "dst": n["eid"],
+                                  "rel": f"{r['rel']} ({dict(r).get('refs', '')})"})
 
             # filter Repository children by browsing mode (File vs Package)
             mode_filter = """
@@ -403,6 +439,8 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
+        if url.path == "/api/integrations":
+            return self._send_json(API.integrations())
         if url.path == "/api/root":
             mode = parse_qs(url.query).get("mode", ["packages"])[0]
             return self._send_json(API.root(mode))

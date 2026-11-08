@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from indexer import artifacts as art
 from indexer import container, deploy, exporter, ingest, publish, verify
+from indexer import integrations as integrations_mod
 from indexer import manifest as manifest_mod
 from indexer import workspace as workspace_mod
 from indexer.manifest import ManifestError
@@ -300,6 +301,30 @@ def main() -> None:
                                                "calls")),
             })
 
+        # ---- stage 5.5: cross-repo integrations (additive edges) ---------------
+        repo_names = [r.spec.name for r in readys]
+        log.info("[*] Stage 5.5: cross-repo integration detection...")
+        for ready in readys:
+            if not any(r.get("status") in ("ok", "mismatch")
+                       for r in repo_reports if r["name"] == ready.spec.name):
+                continue
+            detected = integrations_mod.detect_integrations(
+                ready.spec.path, ready.spec.name, repo_names,
+                manifest_mod.git_tracked_files(ready.spec.path))
+            ingest.ingest_integrations(driver, ready.spec.name, detected)
+            for report in repo_reports:
+                if report["name"] == ready.spec.name:
+                    report["integrations"] = detected
+        integrations_total = {}
+        for report in repo_reports:
+            for i in report.get("integrations", []):
+                integrations_total[f"{report['name']}->{i['target']}"] = i["refs"]
+        if integrations_total:
+            log.info("  [+] %d integration edges: %s", len(integrations_total),
+                     ", ".join(f"{k} ({v})" for k, v in
+                               sorted(integrations_total.items(),
+                                      key=lambda kv: -kv[1])[:8]))
+
         # ---- stage 6 (graph half): neo4j dump --------------------------------
         neo4j_artifact: Dict[str, Any] = {}
         if overall_ok:
@@ -342,6 +367,7 @@ def main() -> None:
             "neo4j_uri": uri,
         },
         "totals_extracted": totals,
+        "integrations": integrations_total,
         "repos": repo_reports,
         "run_manifest": str(rm_path),
         "overall_ok": overall_ok,
