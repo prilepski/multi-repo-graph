@@ -1,54 +1,59 @@
-# Graph Viewer
+# Multi Repo Code Graph Viewer
 
-Interactive viewer for the Java code graph stored in Neo4j. The graph itself
-is produced by the [java-indexer](../java-indexer) pipeline (Tree-sitter parse
-of Java repos → Neo4j); this project only reads it.
+Interactive viewer for the portfolio code graph stored in Neo4j. The graph
+is produced by the multi-repo-graph pipeline (codegraph extraction →
+portfolio schema); this project only reads it.
+
+Rendering is [force-graph](https://github.com/vasturiano/force-graph)
+(WebGL, vendored as `force-graph.min.js` — no build step; the workspace
+runtime ships it as-is).
 
 ## Features
 
-- **Constellation canvas** — glowing orbs, starfield with parallax depth, pan/zoom
-- **Two browsing modes** — `Packages` (Repository → Package → Type → Members)
-  and `Files` (Repository → File → Type → Members, with cross-file class links)
-- **Collapsible tree** on the left, synced with canvas navigation
-- **Click** a node → details popup (properties, relationship counts)
-- **Double-click** → drill into a node's neighborhood; **↑ Level up** walks back
-- **Search** files by path and classes by name; Enter/click jumps, drills,
-  opens details, and highlights the node in the tree
-- **Statistics mode** (`Graph | Statistics` switch): KPI row (tracked /
-  deep-indexed / inventory-only / binaries / LOC), donut of files by
-  category, stacked LOC bars (code/comment/blank), sortable category table —
-  scoped live by clicking the directory tree (`Repository → folder → …`),
-  with reset-scope
+- **Constellation canvas** — glowing orbs, curved links, animated
+  particles on integration edges, pan/zoom (drag/wheel), deterministic
+  ring layout for the repo overview and radial seeding for neighborhoods
+- **Cross-repo integration view** — at the root, repos sit on a ring with
+  amber `INTEGRATES` chords (width ∝ class-weighted score, particles ∝
+  traffic); hover a chord for `src → dst · N refs (M files)` plus the
+  per-class evidence breakdown
+- **Unified filter bar** (bottom-right) — `Nodes | Edges` mode switch;
+  chips show the categories present in the CURRENT view with counts and
+  graph colors:
+  - *nodes*: node labels (Repository/Package/Type/…) — the old legend,
+    now toggleable
+  - *edges*: at the root the INTEGRATES evidence classes
+    (Submodule/Code/Config/Comment/Docs); drilled in, the relationship
+    types (CONTAINS/DEFINES/CALLS/EXTENDS/…)
+  - instant apply (node/link visibility — no re-layout), persisted per
+    browser (`fg-nodes-off` / `fg-edges-off`), evidence-class preferences
+    migrate from the legacy `ig-classes` key
+- **Repository multi-select** (header, root view) — choose which repos the
+  constellation shows; persisted via `fg-repos-off` (stores the
+  deselected, so new repos appear by default); the slot becomes the
+  breadcrumb when drilled
+- **Animation toggle** — link particles on/off, persisted (`fg-anim`)
+- **Two browsing modes** — Packages and Files hierarchies
+- **Collapsible tree** synced with canvas navigation
+- **Click** a node → details popup (properties, relationship counts);
+  **double-click** → drill into its neighborhood; **↑ Level up** walks back
+- **Search** files by path and classes by name
+- **Statistics surface** — coverage KPIs, category donut, LOC breakdowns,
+  scoped by clicking the stats tree (reads the inventory layer:
+  `:File` taxonomy props + `:StatsSnapshot`/`:CategoryStat`)
 
-## Run
-
-Requires a reachable Neo4j (default `bolt://localhost:7687`, password
-`graphpassword123` — edit `viewer_server.py` constants to change) and the
-graph populated by the java-indexer pipeline.
-
-```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python viewer_server.py        # serves at http://127.0.0.1:7600
-```
-
-## Layout
-
-| File | Purpose |
-|---|---|
-| `viewer_server.py` | stdlib HTTP server + Neo4j JSON API (`/api/root`, `/api/children`, `/api/neighborhood`, `/api/details`, `/api/ancestors`, `/api/search`) and static page serving |
-| `graph-viewer.html` | the viewer UI (zero external dependencies) |
-
-## API
+## API (viewer_server.py)
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/root?mode=packages\|files` | topmost nodes with child counts |
-| `GET /api/children?eid=&mode=` | hierarchy children (tree expansion, capped at 500) |
-| `GET /api/neighborhood?eid=&mode=&depth=1\|2` | node + 1-hop neighbors; depth 2 adds cross-file EXTENDS/IMPLEMENTS links |
-| `GET /api/ancestors?eid=&mode=` | hierarchy chain up to the repository |
-| `GET /api/details?eid=` | node properties + relationship counts |
-| `GET /api/search?q=` | classes by name / files by path (20 each) |
-| `GET /api/stats/overview?repo=&prefix=` | KPIs + per-repo coverage (latest snapshot + live) |
-| `GET /api/stats/categories?repo=&prefix=&kind=` | files/bytes/LOC by category |
-| `GET /api/stats/loc?repo=&prefix=` | LOC rows + totals |
-| `GET /api/stats/tree/children?eid=` | directory-tree expansion |
+| `GET /` | this page |
+| `GET /force-graph.min.js` (and sibling assets) | vendored static assets |
+| `GET /api/root?mode=packages\|files` | repositories with child counts |
+| `GET /api/children?eid=` | tree expansion |
+| `GET /api/neighborhood?eid=&mode=&depth=` | node + 1-hop (depth 2 adds class links); excludes StatsSnapshot/CategoryStat |
+| `GET /api/details?eid=` | properties + relationship counts |
+| `GET /api/integrations` | INTEGRATES edges with refs/files/byClass/strongest/score/samples |
+| `GET /api/stats/*` | statistics surface |
+
+Config via env: `NEO4J_URI` (default `bolt://localhost:7688` — this
+project's workspace consumer), `NEO4J_PASSWORD`, `PORT` (default 7600).

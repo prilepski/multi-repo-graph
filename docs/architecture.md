@@ -200,9 +200,10 @@ in run-manifest (LFS + keepLast manage the store).
 ## 10. Testing
 
 `pytest` offline (units: manifest/workspace/inventory/mapping/
-publish/deploy/fingerprint, ~60) · `NEO4J_TEST_URI` integration
-(ingest-twice idempotency, graph shape, sampled verification — suites
-self-provision their container) · `MRG_E2E=1` workspace end-to-end
-(fresh workspace → pipeline → up.py → viewer + MFLens + fan-out served
-from the workspace alone) · MCP suites in `mcp-server/` (128 offline
-contract + 8 live multi-repo) and `codegraph-mcp/` (21). Total 225.
+integrations/publish/deploy/fingerprint — 66) · `NEO4J_TEST_URI`
+integration (ingest-twice idempotency, graph shape, sampled verification
+— suites self-provision their container) · `MRG_E2E=1` workspace
+end-to-end, 6 tests (fresh workspace → pipeline → up.py → viewer +
+MFLens + fan-out served from the workspace alone) · MCP suites in
+`mcp-server/` (128 offline contract + 8 live multi-repo) and
+`codegraph-mcp/` (21). Total 229.

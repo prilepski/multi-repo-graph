@@ -19,8 +19,13 @@ decisions: [docs/decisions.md](docs/decisions.md).
   one graph across all repos, same-FQN types merge.
 - **Per-repo codegraph DBs**: routes, resolved callers, impact radius,
   task context — per repo, kept next to the graph snapshot.
-- **Viewer**: constellation browser (packages/files modes) + Statistics
-  (inventory taxonomy, LOC breakdown, coverage).
+- **Viewer** ("Multi Repo Code Graph Viewer", WebGL): integration
+  constellation with evidence classes, unified Nodes/Edges filter bar,
+  repo multi-select, animation toggle + Statistics (taxonomy, LOC,
+  coverage).
+- **Cross-repo integrations**: `INTEGRATES` edges derived from name
+  references, evidence-classified (submodule/code/config/comment/docs)
+  with per-class breakdowns and sample evidence lines.
 - **Two MCP servers**: MFLens (60+4-tool contract over the portfolio
   graph, incl. `fileHashMatch` drift) and codegraph-portfolio (5 fan-out
   tools over the codegraph DBs).
@@ -99,7 +104,7 @@ runtime/scripts/down.sh [--purge]
 ## Tests
 
 ```bash
-indexer/.venv/bin/python -m pytest                 # offline (~60)
+indexer/.venv/bin/python -m pytest                 # offline (66)
 NEO4J_TEST_URI=bolt://localhost:7688 \
   indexer/.venv/bin/python -m pytest indexer/tests/test_ingest_integration.py
 MRG_E2E=1 indexer/.venv/bin/python -m pytest indexer/tests/test_workspace_e2e.py

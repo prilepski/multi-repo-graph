@@ -101,7 +101,9 @@ Outputs:
 
 - Neo4j browser `http://localhost:<httpPort>` (bolt `<boltPort>`,
   password from settings)
-- graph viewer `http://localhost:<viewerPort>`
+- graph viewer `http://localhost:<viewerPort>` — "Multi Repo Code Graph
+  Viewer": integration constellation with evidence-class coloring,
+  bottom-right Nodes/Edges filter bar, repo multi-select, animation toggle
 - MCP registration: paste the `mcpServers` block from
   `runtime/config/mcp.json` into your ZCode/Claude config — registers
   **mflens** (Neo4j portfolio) and **codegraph-portfolio** (fan-out)
@@ -109,10 +111,13 @@ Outputs:
 ## Concurrency note (one machine, several workspaces)
 
 Give each workspace distinct `boltPort`/`httpPort`/`viewerPort` and its
-own `container` name. The pipeline stops its ingest container after
-dumping precisely so a restored consumer container can bind the same
-ports; integration tests re-start the ingest container themselves when
-they need it.
+own `container` name. Consumers run as `<container>-serve` (volume
+`<container>-serve-data`) — several workspaces can serve simultaneously
+on one machine. The pipeline stops its ingest container after dumping AND
+yields: re-indexing on a serving machine stops this workspace's consumer
+first (restart with `up.sh` afterwards). Consequence: **one indexing
+operator per workspace at a time** — concurrent runs race for the ports
+and one will fail at the dump step.
 
 ## Artifacts & retention
 

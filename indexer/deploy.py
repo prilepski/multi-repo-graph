@@ -114,7 +114,11 @@ NOT need the multi-repo-graph tool repo to use it.
 
 That restores the latest run and starts:
 
-  * graph viewer  — http://localhost:{viewer_port}
+  * graph viewer  — http://localhost:{viewer_port} — "Multi Repo Code
+    Graph Viewer": cross-repo integration constellation (evidence-class
+    colored edges with flowing particles), unified Nodes/Edges filter bar
+    (bottom-right), repository multi-select (header), animation toggle,
+    and a Statistics surface (file taxonomy, LOC, coverage)
   * Neo4j browser — http://localhost:{http_port}  (bolt :{bolt_port},
     password in workspace.json settings.neo4j.password)
   * MCP servers   — paste `runtime/config/mcp.json` into your

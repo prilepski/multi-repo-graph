@@ -43,4 +43,8 @@ relitigate without new evidence.
 | `:File.sha256` variant | hash of utf-8-decoded/re-encoded text | matches MFLens `drift_check` exactly (the contract); identical to raw bytes for valid UTF-8 |
 | Snapshot decompression | into `snapshot/`, never `runs/` | up.py once wrote raw dumps next to the .zst files and the next publish committed them |
 | Test DB bootstraps | integration suites self-provision (create if missing, docker start if stopped) | pipeline stops the container; tests must not assume it runs |
+| Cross-repo edges | `(:Repository)-[:INTEGRATES]->` derived from name references, evidence-classified (submodule>code>config>comment>docs); ADDITIVE to D7 | base extractor cannot express inter-service calls (string literals); name-reference detection is unambiguous and auditable |
+| Viewer renderer | force-graph (WebGL), vendored single file, MIT, no build step | galaxy aesthetic + particles for integration traffic; fits file-copy runtime deployment |
+| Viewer filtering | unified bar: Nodes/Edges mode switch, context-aware chips (labels at any depth; evidence classes at root, relationship types drilled) | legend was passive; one control composes with repo multi-select |
+| Consumer naming | per-workspace `<container>-serve`; pipeline yields to its own consumer before re-indexing | shared consumer name collided across workspaces; re-index must free the workspace ports |
 | Replicated-file drift | read as **installer conformance**, not duplication smell | infra's Makefile stamps `templates/ci-agent-templates` into per-repo GitHub actions (actions are per-repo by design); graph = independent verification that installed artifacts match the template |
