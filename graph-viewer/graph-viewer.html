@@ -227,11 +227,20 @@
   #toast.show { opacity: .95; }
 
   /* INTEGRATES evidence-class filter (constellation overview) */
-  #ig-filter {
+  #filter-bar {
     position: absolute; top: 40px; left: 50%; transform: translateX(-50%);
     z-index: 25; display: none; flex-wrap: wrap; gap: 5px;
-    justify-content: center; max-width: 78%;
+    justify-content: center; max-width: 82%; align-items: center;
   }
+  .fb-switch { display: flex; gap: 0; margin-right: 8px; }
+  .fb-switch button {
+    background: rgba(13,22,40,.85); border: 1px solid #24365c; color: #8ba0c4;
+    font: 10.5px/1 -apple-system,system-ui,sans-serif; padding: 5px 10px;
+    cursor: pointer; text-transform: uppercase; letter-spacing: .06em;
+  }
+  .fb-switch button.active { background: #2b4a86; border-color: #4a6fb5; color: #fff; }
+  .fb-switch button:first-child { border-radius: 6px 0 0 6px; }
+  .fb-switch button:last-child { border-radius: 0 6px 6px 0; border-left: none; }
 
   /* ----- search ----- */
   #search-box { position: relative; flex: none; }
@@ -338,7 +347,6 @@
   <div id="canvas-wrap">
     <button id="panel-toggle" title="Show tree">&#9654; Tree</button>
     <div id="fg"></div>
-    <div class="legend" id="legend"></div>
     <div id="stats-pane">
       <div class="scope-bar">
         <strong id="stats-scope-label">All repositories</strong>
@@ -380,7 +388,13 @@
     <div id="stats-tooltip"></div>
     <div id="details"></div>
     <div id="toast"></div>
-    <div id="ig-filter" class="cat-chips"></div>
+    <div id="filter-bar">
+      <div class="fb-switch" role="tablist" aria-label="Filter mode">
+        <button id="fb-mode-nodes" type="button">Nodes</button>
+        <button id="fb-mode-edges" type="button">Edges</button>
+      </div>
+      <div id="fb-items" class="cat-chips"></div>
+    </div>
   </div>
 </div>
 
@@ -479,38 +493,89 @@ const IG_CLASS = {
   unknown:   { label: "Legacy",    color: "rgba(232,182,76,.45)",  width: 1.0 },
 };
 const IG_CLASS_ORDER = ["submodule", "code", "config", "comment", "docs"];
-let igFilter = new Set(JSON.parse(localStorage.getItem("ig-classes") || "null")
-                       || IG_CLASS_ORDER);
 
-function igFilterVisible() {
-  return surface === "graph" && current === null && rootData !== null;
+/* Unified filter bar (nodes | edges). One panel, one mode switch; the chip
+   row shows the categories present in the CURRENT view:
+     nodes mode -> node labels (Repository/Package/Type/…)  [was the legend]
+     edges mode -> root: INTEGRATES evidence classes | drilled: relationship
+                   types (CONTAINS/CALLS/EXTENDS/…)
+   Toggles apply instantly via node/linkVisibility (no re-layout) and are
+   persisted. Legacy "ig-classes" prefs migrate into the edge set. */
+let filterMode = localStorage.getItem("fg-filter-mode") === "nodes" ? "nodes" : "edges";
+const nodeFilterOff = new Set(JSON.parse(localStorage.getItem("fg-nodes-off") || "[]"));
+const edgeFilterOff = new Set((() => {
+  try {
+    const saved = localStorage.getItem("fg-edges-off");
+    if (saved) return JSON.parse(saved);
+    // migrate: ig-classes stored the ENABLED evidence classes
+    const enabled = JSON.parse(localStorage.getItem("ig-classes") || "null");
+    if (Array.isArray(enabled))
+      return IG_CLASS_ORDER.filter(c => !enabled.includes(c));
+    return [];
+  } catch (e) { return []; }
+})());
+function persistFilter() {
+  localStorage.setItem("fg-nodes-off", JSON.stringify([...nodeFilterOff]));
+  localStorage.setItem("fg-edges-off", JSON.stringify([...edgeFilterOff]));
 }
-function showIgFilter() {
-  const el = document.getElementById("ig-filter");
-  el.style.display = igFilterVisible() ? "flex" : "none";
+function applyFilters() {
+  graph.nodeVisibility(n => !nodeFilterOff.has(n.label));
+  graph.linkVisibility(l => !edgeFilterOff.has(l.__rel));
 }
-function buildIgFilter() {
-  const el = document.getElementById("ig-filter");
-  el.innerHTML = "";
-  for (const c of IG_CLASS_ORDER) {
-    const st = IG_CLASS[c];
+function filterBarVisible() {
+  return surface === "graph" && !!window.__fg
+         && window.__fg.graphData().nodes.length > 0;
+}
+function showFilterBar() {
+  document.getElementById("filter-bar").style.display =
+    filterBarVisible() ? "flex" : "none";
+}
+function filterItems() {
+  const counts = new Map();
+  const gd = graph.graphData();
+  if (filterMode === "nodes") {
+    for (const n of gd.nodes)
+      counts.set(n.label, (counts.get(n.label) || 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => ({
+      key: k, count: n, color: colorFor(k),
+      title: `Show/hide ${k} nodes` }));
+  }
+  for (const l of gd.links)
+    counts.set(l.__rel, (counts.get(l.__rel) || 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => ({
+    key: k, count: n,
+    color: (IG_CLASS[k] && IG_CLASS[k].color) || relStyle(k).color,
+    title: `Show/hide ${k} edges` }));
+}
+function buildFilterBar() {
+  document.getElementById("fb-mode-nodes").classList.toggle("active", filterMode === "nodes");
+  document.getElementById("fb-mode-edges").classList.toggle("active", filterMode === "edges");
+  const items = document.getElementById("fb-items");
+  items.innerHTML = "";
+  for (const it of filterItems()) {
+    const off = (filterMode === "nodes" ? nodeFilterOff : edgeFilterOff).has(it.key);
     const chip = document.createElement("span");
-    chip.className = "cat-chip" + (igFilter.has(c) ? "" : " off");
-    chip.title = `Show/hide edges whose strongest evidence class is ${c}`;
+    chip.className = "cat-chip" + (off ? " off" : "");
+    chip.title = it.title;
     const dot = document.createElement("span");
     dot.className = "dot";
-    dot.style.background = st.color;
+    dot.style.background = it.color;
     chip.appendChild(dot);
-    chip.appendChild(document.createTextNode(st.label));
+    chip.appendChild(document.createTextNode(`${it.key} ×${it.count}`));
     chip.onclick = () => {
-      if (igFilter.has(c)) igFilter.delete(c); else igFilter.add(c);
-      localStorage.setItem("ig-classes", JSON.stringify([...igFilter]));
-      buildIgFilter();
-      if (igFilterVisible()) drawRootOverview();
+      const set = filterMode === "nodes" ? nodeFilterOff : edgeFilterOff;
+      if (set.has(it.key)) set.delete(it.key); else set.add(it.key);
+      persistFilter(); applyFilters(); buildFilterBar();
     };
-    el.appendChild(chip);
+    items.appendChild(chip);
   }
 }
+document.getElementById("fb-mode-nodes").onclick = () => {
+  filterMode = "nodes"; localStorage.setItem("fg-filter-mode", "nodes"); buildFilterBar();
+};
+document.getElementById("fb-mode-edges").onclick = () => {
+  filterMode = "edges"; localStorage.setItem("fg-filter-mode", "edges"); buildFilterBar();
+};
 
 function paintNode(n, ctx, globalScale) {
   const isFocus = !!n.__focus;
@@ -676,8 +741,9 @@ async function renderRootOverview(roots) {
   try { integrations = await api("/api/integrations"); } catch (e) {}
   rootData = { roots, integrations };
   drawRootOverview();
-  buildIgFilter();
-  showIgFilter();
+  applyFilters();
+  buildFilterBar();
+  showFilterBar();
   buildRepoFilter();
   showRepoFilter();
   if (integrations.length)
@@ -706,8 +772,6 @@ function drawRootOverview() {
   const byEid = new Set(nodes.map(n => n.eid));
   const links = integrations
     .filter(i => byEid.has(i.srcEid) && byEid.has(i.dstEid))
-    // legacy (pre-classification) edges have no strongest -> always shown
-    .filter(i => !i.strongest || igFilter.has(i.strongest))
     .map(i => {
       const cls = i.strongest || "unknown";
       const st = IG_CLASS[cls];
@@ -715,7 +779,7 @@ function drawRootOverview() {
       const parts = Object.entries(i.byClass || {})
         .sort((a, b) => IG_CLASS_ORDER.indexOf(a[0]) - IG_CLASS_ORDER.indexOf(b[0]))
         .map(([c, n]) => `${c} ${n}`).join(" · ");
-      return { source: i.srcEid, target: i.dstEid,
+      return { source: i.srcEid, target: i.dstEid, __rel: cls,
                __style: { color: st.color, arrow: 3.5,
                           particles: cls === "submodule" || cls === "code" ? 2 : 1,
                           width: st.width },
@@ -730,8 +794,7 @@ function drawRootOverview() {
 }
 
 function renderNeighborhood(data) {
-  showIgFilter();   // hides: only the root overview keeps the filter row
-  showRepoFilter(); // same lifecycle: root keeps the repo selector, crumb returns
+  showRepoFilter(); // root keeps the repo selector; crumb returns when drilled
   // seed a radial layout (focus center, neighbors by relationship groups) so
   // the view is structured immediately; the force engine refines from there
   const relOf = {};
@@ -769,10 +832,14 @@ function renderNeighborhood(data) {
   const links = data.edges
     .filter(e => byEid.has(e.src) && byEid.has(e.dst))
     .map(e => ({ source: e.src, target: e.dst,
+                 __rel: e.rel.split(" ")[0].toUpperCase(),
                  __style: relStyle(e.rel), __label: e.rel }));
   graph.cooldownTime(6000);  // force-refined layout: full cooldown, engine-stop
                              // refit (overview draws use a short 120ms one)
   graph.graphData({ nodes, links });
+  applyFilters();   // context-aware: nodes/edges chips match THIS view
+  buildFilterBar();
+  showFilterBar();
   graph.zoomToFit(400, 80);
   if (data.truncated) toast("Large neighborhood — showing a capped subset");
 }
@@ -1087,15 +1154,7 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest("#search-box")) closeSearch();
 });
 
-/* legend */(function buildLegend() {
-  const legend = document.getElementById("legend");
-  for (const [label, color] of Object.entries(LABEL_COLORS)) {
-    const l = document.createElement("div");
-    l.className = "l";
-    l.innerHTML = `<span class="sw" style="background:${color}"></span>${label}`;
-    legend.appendChild(l);
-  }
-})();
+
 
 /* ================= STATISTICS MODE ================= */
 const CATEGORY_COLORS = {
@@ -1127,13 +1186,12 @@ function setSurface(which) {
   document.getElementById("surface-stats").classList.toggle("active", which === "statistics");
   document.getElementById("stats-pane").style.display = which === "statistics" ? "block" : "none";
   document.getElementById("fg").style.display = which === "statistics" ? "none" : "block";
-  document.getElementById("legend").style.display = which === "statistics" ? "none" : "flex";
   document.getElementById("browse-modes").style.display = which === "statistics" ? "none" : "flex";
   document.getElementById("tree-root").style.display = which === "statistics" ? "none" : "block";
   document.getElementById("stats-tree-root").style.display = which === "statistics" ? "block" : "none";
   document.getElementById("tree-hint").textContent = which === "statistics"
     ? "Click: scope statistics to this folder" : "Click: select & details · Double-click: drill down";
-  showIgFilter();   // evidence-class chips only live on the graph overview
+  showFilterBar();  // filter bar lives on the graph surface (any depth)
   showRepoFilter(); // repo selector likewise
   if (which === "statistics") {
     if (!document.getElementById("stats-tree-root").children.length) loadStatsTreeRoot();

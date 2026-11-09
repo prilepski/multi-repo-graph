@@ -190,7 +190,9 @@ class Api:
             for r in s.run(f"""
                 MATCH (n) WHERE elementId(n) = $eid
                 MATCH (n)-[r]->(m)
-                WHERE true {mode_filter}
+                WHERE NOT m:StatsSnapshot AND NOT m:CategoryStat
+                  AND NOT n:StatsSnapshot AND NOT n:CategoryStat
+                  AND true {mode_filter}
                 RETURN type(r) AS rel, elementId(m) AS eid, labels(m)[0] AS label,
                        coalesce(m.name, m.fqn, m.id) AS name, m.kind AS kind
                 LIMIT $cap
@@ -203,7 +205,9 @@ class Api:
             for r in s.run(f"""
                 MATCH (n) WHERE elementId(n) = $eid
                 MATCH (n)<-[r]-(m)
-                WHERE true {mode_filter}
+                WHERE NOT m:StatsSnapshot AND NOT m:CategoryStat
+                  AND NOT n:StatsSnapshot AND NOT n:CategoryStat
+                  AND true {mode_filter}
                 RETURN type(r) AS rel, elementId(m) AS eid, labels(m)[0] AS label,
                        coalesce(m.name, m.fqn, m.id) AS name, m.kind AS kind
                 LIMIT $cap
