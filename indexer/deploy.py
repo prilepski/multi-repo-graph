@@ -143,7 +143,13 @@ Re-indexing is done by an operator with the multi-repo-graph tool:
 
 
 def write_workspace_readme(ws_root: Path) -> None:
-    """Generate the consumption README from workspace.json settings."""
+    """Generate the consumption README from workspace.json settings.
+    A hand-written README containing the keep-marker is PRESERVED (e.g. the
+    multi-repo-graph-example sample repo ships a curated README)."""
+    readme = ws_root / "README.md"
+    if readme.exists() and "mrg:keep-readme" in readme.read_text(
+            encoding="utf-8", errors="replace")[:2000]:
+        return
     import json
     settings = json.loads((ws_root / "workspace.json").read_text()) \
         .get("settings", {})

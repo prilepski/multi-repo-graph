@@ -138,6 +138,16 @@ class TestDeployRuntime:
         assert (rt / "VERSION").exists()
         assert deployed["version"]["toolCommit"]
 
+    def test_hand_written_readme_preserved(self, tmp_path):
+        ws_root = write_workspace(tmp_path / "ws")
+        ws = ws_mod.ensure_workspace(ws_root)
+        (ws.root / "README.md").write_text(
+            "# Curated sample\n<!-- mrg:keep-readme -->\n")
+        deploy.deploy_runtime(ws.root)
+        content = (ws.root / "README.md").read_text()
+        assert "Curated sample" in content
+        assert "up.sh" not in content  # generated version did not clobber
+
     def test_idempotent_second_deploy(self, tmp_path):
         ws_root = write_workspace(tmp_path / "ws")
         ws = ws_mod.ensure_workspace(ws_root)
