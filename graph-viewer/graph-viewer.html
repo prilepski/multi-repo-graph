@@ -32,6 +32,9 @@
   header button:hover:not(:disabled) { background: var(--accent-soft); }
   header button:disabled { opacity: .45; cursor: default; }
   header button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  header button#btn-anim { min-width: 96px; }
+  header button#btn-anim:not(.active) { opacity: .55; }
+  header button#btn-anim:not(.active)::first-letter { filter: grayscale(1); }
 
   #body { flex: 1; display: flex; min-height: 0; position: relative; }
 
@@ -278,6 +281,8 @@
   </div>
   <span class="crumb" id="crumb">Repositories</span>
   <span class="spacer"></span>
+  <button id="btn-anim" class="active" type="button"
+          title="Toggle link particle animation">&#9679; Animation</button>
   <button id="btn-up" disabled>&#8593; Level up</button>
   <button id="btn-reset">Reset</button>
 </header>
@@ -465,11 +470,27 @@ const graph = ForceGraph()(fgElem)
   .linkDirectionalArrowLength(l => l.__style.arrow)
   .linkDirectionalArrowRelPos(0.85)
   .linkDirectionalArrowColor(l => l.__style.color)
-  .linkDirectionalParticles(l => l.__style.particles || 0)
+  .linkDirectionalParticles(l => (animOn ? (l.__style.particles || 0) : 0))
   .linkDirectionalParticleWidth(1.6)
   .linkDirectionalParticleSpeed(0.006)
   .onEngineStop(() => graph.zoomToFit(600, 70))
   .cooldownTime(6000);
+
+/* animation toggle (persisted): link particles on/off */
+let animOn = localStorage.getItem("fg-anim") !== "off";
+const animBtn = document.getElementById("btn-anim");
+function applyAnim() {
+  animBtn.classList.toggle("active", animOn);
+  animBtn.textContent = animOn ? "\u25CF Animation" : "\u25CB Animation";
+  // re-assign the accessor so force-graph re-evaluates particle counts now
+  graph.linkDirectionalParticles(l => (animOn ? (l.__style.particles || 0) : 0));
+}
+animBtn.addEventListener("click", () => {
+  animOn = !animOn;
+  localStorage.setItem("fg-anim", animOn ? "on" : "off");
+  applyAnim();
+});
+applyAnim();
 
 async function renderRootOverview(roots) {
   current = null;
