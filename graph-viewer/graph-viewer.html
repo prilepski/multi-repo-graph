@@ -356,7 +356,7 @@
     </div>
     <ul id="tree-root"></ul>
     <ul id="stats-tree-root" style="display:none"></ul>
-    <div class="hint" id="tree-hint">Click: select &middot; Ctrl+click: multi-select &middot; Shift+drag canvas: lasso &middot; Double-click: drill down</div>
+    <div class="hint" id="tree-hint"></div>
   </aside>
   <div id="canvas-wrap">
     <button id="panel-toggle" title="Show tree">&#9654; Tree</button>
@@ -590,6 +590,11 @@ function buildFilterBar() {
     items.appendChild(chip);
   }
 }
+const HINT_TEXT = (/Mac/.test(navigator.platform) ? "\u2318" : "Ctrl+")
+  + "click tree: multi-select \u00b7 Shift+drag canvas: lasso \u00b7 "
+  + "Double-click: drill down";
+document.getElementById("tree-hint").textContent = HINT_TEXT;
+
 /* ---- selection model: lasso (shift+drag on canvas), ctrl+click tree
    rows, plain click = exclusive single. Isolate turns the selection into
    a view filter (composes with the filter bar). ---- */
@@ -1100,16 +1105,23 @@ function treeRow(node) {
   childUl.style.display = "none";
   li.appendChild(childUl);
 
+  const toggleSelect = () => {
+    if (selection.has(node.eid)) selection.delete(node.eid);
+    else selection.add(node.eid);
+    selectedEid = node.eid;
+    updateSelPill(); applyFilters();
+  };
   row.addEventListener("click", (e) => {
-    if (e.ctrlKey || e.metaKey) {          // multi-select from the tree
-      if (selection.has(node.eid)) selection.delete(node.eid);
-      else selection.add(node.eid);
-      selectedEid = node.eid;
-      updateSelPill(); applyFilters();
-      return;
-    }
+    if (e.ctrlKey || e.metaKey) { toggleSelect(); return; }  // multi-select
     highlightTree(node.eid);
     selectNode(node.eid, e);
+  });
+  // macOS: Ctrl+Click is RIGHT-CLICK (button 2 + contextmenu, no click
+  // event) — claim that gesture for multi-select instead of the menu
+  row.addEventListener("contextmenu", (e) => {
+    if (!e.ctrlKey) return;               // plain right-click stays native
+    e.preventDefault();
+    toggleSelect();
   });
   row.addEventListener("dblclick", () => drillDown(node.eid));
   chev.addEventListener("click", async (e) => {
@@ -1333,7 +1345,7 @@ function setSurface(which) {
   document.getElementById("tree-root").style.display = which === "statistics" ? "none" : "block";
   document.getElementById("stats-tree-root").style.display = which === "statistics" ? "block" : "none";
   document.getElementById("tree-hint").textContent = which === "statistics"
-    ? "Click: scope statistics to this folder" : "Click: select & details · Double-click: drill down";
+    ? "Click: scope statistics to this folder" : HINT_TEXT;
   showFilterBar();  // filter bar lives on the graph surface (any depth)
   showRepoFilter(); // repo selector likewise
   if (which === "statistics") {
