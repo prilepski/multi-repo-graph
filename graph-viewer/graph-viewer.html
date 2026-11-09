@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Java Code Graph Viewer</title>
+<title>Multi Repo Code Graph Viewer</title>
 <style>
   :root {
     --bg: #070b14; --panel: #0d1424; --border: #1e2a44; --text: #dbe4f5;
@@ -228,9 +228,11 @@
 
   /* INTEGRATES evidence-class filter (constellation overview) */
   #filter-bar {
-    position: absolute; top: 40px; left: 50%; transform: translateX(-50%);
-    z-index: 25; display: none; flex-wrap: wrap; gap: 5px;
-    justify-content: center; max-width: 82%; align-items: center;
+    position: absolute; bottom: 10px; right: 12px; z-index: 25;
+    display: none; flex-wrap: wrap; gap: 5px; justify-content: flex-end;
+    max-width: 420px; align-items: center;
+    background: rgba(10, 16, 32, .82); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px;
   }
   .fb-switch { display: flex; gap: 0; margin-right: 8px; }
   .fb-switch button {
@@ -301,7 +303,7 @@
 </head>
 <body>
 <header>
-  <h1>Java Code Graph</h1>
+  <h1>Multi Repo Code Graph</h1>
   <div class="mode-switch" role="group" aria-label="Surface">
     <button id="surface-graph" class="active" type="button">Graph</button>
     <button id="surface-stats" type="button">Statistics</button>
