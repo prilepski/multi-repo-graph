@@ -650,13 +650,13 @@ document.getElementById("btn-clearsel").onclick = () => {
     const r = overlay.getBoundingClientRect();
     points.push({ x: e.clientX - r.left, y: e.clientY - r.top });
     octx.clearRect(0, 0, overlay.width, overlay.height);
-    octx.strokeStyle = "rgba(232,182,76,.9)"; octx.lineWidth = 1.5;
-    octx.setLineDash([6, 4]);
+    octx.strokeStyle = "rgba(255,196,80,.95)"; octx.lineWidth = 2.5;
+    octx.setLineDash([]);
     octx.beginPath();
     octx.moveTo(points[0].x, points[0].y);
     for (const p of points.slice(1)) octx.lineTo(p.x, p.y);
-    octx.stroke(); octx.setLineDash([]);
-    octx.fillStyle = "rgba(232,182,76,.08)";
+    octx.stroke();
+    octx.fillStyle = "rgba(255,196,80,.12)";
     octx.fill();
   });
   window.addEventListener("pointerup", () => {
@@ -679,7 +679,11 @@ document.getElementById("btn-clearsel").onclick = () => {
       if (inside(p.x, p.y)) picked.push(n.eid);
     }
     window.__lasso.picked = picked.length;
-    if (picked.length) setSelection(picked);
+    if (picked.length) {
+      isolate = true;              // release = render only the selection,
+      setSelection(picked);        // edges among selected nodes survive
+      toast("Isolated " + picked.length + " nodes — Reset or \u2191 Level up to exit");
+    }
   });
 })();
 
@@ -1011,6 +1015,7 @@ async function selectNode(eid, ev) {
 let treeMode = "packages";
 
 async function loadRootOverview() {
+  isolate = false; selection.clear(); updateSelPill();
   const roots = await api("/api/root?mode=" + treeMode);
   current = null; drillStack = []; selectedEid = null;
   document.getElementById("btn-up").disabled = true;
@@ -1033,6 +1038,7 @@ document.getElementById("mode-packages").addEventListener("click", () => switchM
 document.getElementById("mode-files").addEventListener("click", () => switchMode("files"));
 
 async function drillDown(eid) {
+  isolate = false; selection.clear(); updateSelPill();  // fresh view
   let data;
   const depth = treeMode === "files" ? 2 : 1;
   try {
@@ -1050,6 +1056,7 @@ async function drillDown(eid) {
 }
 
 async function levelUp() {
+  isolate = false; selection.clear(); updateSelPill();
   if (!drillStack.length) { await loadRootOverview(); return; }
   const prev = drillStack.pop();
   current = prev;
