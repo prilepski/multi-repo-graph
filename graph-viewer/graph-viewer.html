@@ -241,6 +241,26 @@
   }
   #search-box input:focus { border-color: var(--accent); }
   #search-box input::placeholder { color: var(--muted); }
+  #repo-select { position: relative; display: none; }
+  #repo-select-btn { min-width: 150px; text-align: left; }
+  #repo-select-drop {
+    position: absolute; top: calc(100% + 6px); left: 0; width: 300px;
+    background: rgba(13, 20, 36, .97); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: 0 12px 36px rgba(0, 0, 0, .55);
+    display: none; z-index: 40; padding: 8px;
+  }
+  #repo-select-drop.open { display: block; }
+  #repo-select .rs-actions { display: flex; gap: 6px; align-items: center;
+    padding: 2px 4px 8px; }
+  #repo-select .rs-actions button { font-size: 11px; padding: 3px 10px; }
+  #repo-select .rs-hint { font-size: 10px; color: var(--muted); margin-left: auto; }
+  #repo-select-list { max-height: 320px; overflow: auto; }
+  #repo-select-list label {
+    display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+    border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text);
+  }
+  #repo-select-list label:hover { background: var(--accent-soft); }
+  #repo-select-list label.off { opacity: .45; text-decoration: line-through; }
   #search-drop {
     position: absolute; top: calc(100% + 6px); left: 0; width: 460px; max-width: 70vw;
     background: rgba(13, 20, 36, .97); border: 1px solid var(--border); border-radius: 10px;
@@ -286,7 +306,19 @@
            autocomplete="off" spellcheck="false" aria-label="Search files and classes">
     <div id="search-drop" role="listbox" aria-label="Search results"></div>
   </div>
-  <span class="crumb" id="crumb">Repositories</span>
+  <div id="repo-select">
+    <button id="repo-select-btn" type="button" aria-haspopup="true"
+            title="Choose which repositories to display">All repositories &#9662;</button>
+    <div id="repo-select-drop">
+      <div class="rs-actions">
+        <button type="button" data-rs="all">All</button>
+        <button type="button" data-rs="none">None</button>
+        <span class="rs-hint">click a repository to toggle</span>
+      </div>
+      <div id="repo-select-list"></div>
+    </div>
+  </div>
+  <span class="crumb" id="crumb" style="display:none">Repositories</span>
   <span class="spacer"></span>
   <button id="btn-anim" class="active" type="button"
           title="Toggle link particle animation">&#9679; Animation</button>
@@ -558,6 +590,86 @@ applyAnim();
 
 let rootData = null;   // {roots, integrations} — cached for filter re-draws
 
+/* repository multi-select (root overview): which repos the constellation
+   shows. null = all (default). Persisted as the DESELECTED list so newly
+   indexed repos appear without touching storage. */
+let repoFilter = null;
+try {
+  const off = JSON.parse(localStorage.getItem("fg-repos-off") || "[]");
+  if (Array.isArray(off) && off.length) repoFilter = { off: new Set(off) };
+} catch (e) {}
+function repoSelected(name) {
+  return !(repoFilter && repoFilter.off.has(name));
+}
+function repoFilterShow() {
+  return surface === "graph" && current === null && rootData !== null;
+}
+function showRepoFilter() {
+  const on = repoFilterShow();
+  document.getElementById("repo-select").style.display = on ? "block" : "none";
+  document.getElementById("crumb").style.display = on ? "none" : "";
+  if (!on) document.getElementById("repo-select-drop").classList.remove("open");
+}
+function repoBtnLabel() {
+  const total = rootData.roots.length;
+  const sel = rootData.roots.filter(r => repoSelected(r.name)).length;
+  const btn = document.getElementById("repo-select-btn");
+  btn.innerHTML = (sel === total ? "All repositories" : sel + " of " + total)
+    + " &#9662;";
+}
+function buildRepoFilter() {
+  const list = document.getElementById("repo-select-list");
+  list.innerHTML = "";
+  for (const r of rootData.roots) {
+    const on = repoSelected(r.name);
+    const lab = document.createElement("label");
+    lab.dataset.name = r.name;
+    lab.className = on ? "" : "off";
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = on;
+    cb.onchange = () => {
+      if (cb.checked) {
+        if (repoFilter) repoFilter.off.delete(r.name);
+      } else {
+        if (!repoFilter) repoFilter = { off: new Set() };   // lazy init
+        repoFilter.off.add(r.name);
+      }
+      localStorage.setItem("fg-repos-off",
+        JSON.stringify(repoFilter ? [...repoFilter.off] : []));
+      // update in place — rebuilding the list mid-multi-toggle breaks it
+      lab.classList.toggle("off", !cb.checked);
+      repoBtnLabel(); drawRootOverview();
+    };
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(r.name));
+    const cnt = document.createElement("span");
+    cnt.style.cssText = "margin-left:auto;color:var(--muted);font-size:10px";
+    cnt.textContent = (r.children || 0) + " pkgs";
+    lab.appendChild(cnt);
+    list.appendChild(lab);
+  }
+  repoBtnLabel();
+}
+(function repoSelectWiring() {
+  const box = document.getElementById("repo-select");
+  const drop = document.getElementById("repo-select-drop");
+  document.getElementById("repo-select-btn").onclick = (e) => {
+    e.stopPropagation();
+    drop.classList.toggle("open");
+  };
+  drop.addEventListener("click", (e) => e.stopPropagation());
+  drop.querySelectorAll("[data-rs]").forEach((b) => {
+    b.onclick = () => {
+      const all = b.dataset.rs === "all";
+      repoFilter = all ? null : { off: new Set(rootData.roots.map(r => r.name)) };
+      localStorage.setItem("fg-repos-off",
+                           JSON.stringify(all ? [] : [...repoFilter.off]));
+      buildRepoFilter(); drawRootOverview();
+    };
+  });
+  document.addEventListener("click", () => drop.classList.remove("open"));
+})();
+
 async function renderRootOverview(roots) {
   current = null;
   let integrations = [];
@@ -566,13 +678,16 @@ async function renderRootOverview(roots) {
   drawRootOverview();
   buildIgFilter();
   showIgFilter();
+  buildRepoFilter();
+  showRepoFilter();
   if (integrations.length)
     toast(integrations.length + " integration links — chips filter by evidence class");
 }
 
 function drawRootOverview() {
   if (!rootData) return;
-  const { roots, integrations } = rootData;
+  const { integrations } = rootData;
+  const roots = rootData.roots.filter(r => repoSelected(r.name));
   // class-weighted score: 300 doc mentions must not outshine 8 code refs
   const maxScore = Math.max(1, ...integrations.map(i => i.score || i.refs || 0));
   // deterministic ring layout, positions FIXED (fx/fy): a fully-linked repo
@@ -616,6 +731,7 @@ function drawRootOverview() {
 
 function renderNeighborhood(data) {
   showIgFilter();   // hides: only the root overview keeps the filter row
+  showRepoFilter(); // same lifecycle: root keeps the repo selector, crumb returns
   // seed a radial layout (focus center, neighbors by relationship groups) so
   // the view is structured immediately; the force engine refines from there
   const relOf = {};
