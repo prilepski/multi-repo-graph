@@ -397,8 +397,8 @@ function depthOf(eid) {
 }
 
 function nodeRadius(node, isFocus) {
-  const base = node.label === "Repository" ? 13 : node.label === "Package" ? 10
-             : node.label === "Type" ? 9 : 7;
+  const base = node.label === "Repository" ? 11 : node.label === "Package" ? 8.5
+             : node.label === "Type" ? 7 : 5.5;
   return base * (isFocus ? 1.35 : depthOf(node.eid));
 }
 
@@ -423,7 +423,7 @@ function paintNode(n, ctx, globalScale) {
   const color = colorFor(n.label);
   const r = nodeRadius(n, isFocus);
   ctx.save();
-  ctx.shadowBlur = 16; ctx.shadowColor = color;
+  ctx.shadowBlur = 9; ctx.shadowColor = color;
   ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI);
   ctx.fillStyle = color; ctx.fill();
   ctx.restore();
@@ -445,6 +445,7 @@ let clickTimer = null;   // click-select vs dblclick-drill disambiguation
 let lastNodeClick = { eid: null, t: 0 };
 
 const graph = ForceGraph()(fgElem)
+  .maxZoom(1.8)
   .backgroundColor("#0a1224")
   .nodeLabel(n => `${n.label}: ${n.name}` + (n.file ? `\nfile: ${n.file}` : ""))
   .linkLabel(l => l.__label || "")
@@ -475,6 +476,7 @@ const graph = ForceGraph()(fgElem)
   .linkDirectionalParticleSpeed(0.006)
   .onEngineStop(() => graph.zoomToFit(600, 70))
   .cooldownTime(6000);
+window.__fg = graph;      // console/diagnostics access (after init!)
 
 /* animation toggle (persisted): link particles on/off */
 let animOn = localStorage.getItem("fg-anim") !== "off";
@@ -497,8 +499,15 @@ async function renderRootOverview(roots) {
   let integrations = [];
   try { integrations = await api("/api/integrations"); } catch (e) {}
   const maxRefs = Math.max(1, ...integrations.map(i => i.refs));
-  const nodes = roots.map(r => ({ id: r.eid, eid: r.eid, name: r.name,
-                                  label: r.label }));
+  // deterministic ring layout, positions FIXED (fx/fy): a fully-linked repo
+  // web doesn't force-lay well, and fixed coords render correctly even in
+  // throttled/background tabs where rAF-driven ticks stall
+  const R = Math.max(260, Math.min(fgElem.clientWidth, fgElem.clientHeight) * 0.32);
+  const nodes = roots.map((r, i) => {
+    const a = (i / roots.length) * Math.PI * 2 - Math.PI / 2;
+    return { id: r.eid, eid: r.eid, name: r.name, label: r.label,
+             fx: R * Math.cos(a), fy: R * Math.sin(a) };
+  });
   const byEid = new Set(nodes.map(n => n.eid));
   const links = integrations
     .filter(i => byEid.has(i.srcEid) && byEid.has(i.dstEid))
@@ -506,24 +515,52 @@ async function renderRootOverview(roots) {
                  __style: relStyle("INTEGRATES"),
                  __width: 0.7 + 3.2 * (i.refs / maxRefs),
                  __label: `${i.src} → ${i.dst} · ${i.refs} refs (${i.files} files)` }));
-  graph.d3Force("charge").strength(-520);
   graph.graphData({ nodes, links });
+  graph.zoomToFit(400, 80);
   if (integrations.length) toast(integrations.length + " cross-repo integration links");
 }
 
 function renderNeighborhood(data) {
-  graph.d3Force("charge").strength(-260);
+  // seed a radial layout (focus center, neighbors by relationship groups) so
+  // the view is structured immediately; the force engine refines from there
+  const relOf = {};
+  for (const e of data.edges) {
+    if (e.src === data.focus.eid) relOf[e.dst] = e.rel;
+    else if (e.dst === data.focus.eid) relOf[e.src] = "in:" + e.rel;
+  }
+  const groups = {};
+  for (const n of data.nodes) {
+    const k = relOf[n.eid] || "other";
+    (groups[k] = groups[k] || []).push(n);
+  }
+  const seed = { x: 0, y: 0 };
+  let angle = -Math.PI / 2;
+  const total = data.nodes.length || 1;
+  for (const key of Object.keys(groups).sort()) {
+    const g = groups[key];
+    const sweep = (g.length / total) * Math.PI * 1.7;
+    g.forEach((n, i) => {
+      const t = g.length === 1 ? 0.5 : i / (g.length - 1);
+      const a = angle + t * sweep;
+      const r = 220 + 90 * ((i % 3) / 2);
+      seed[n.eid] = { x: r * Math.cos(a), y: r * Math.sin(a) };
+    });
+    angle += sweep + 0.25;
+  }
   const nodes = [{ id: data.focus.eid, eid: data.focus.eid,
                    name: data.focus.name, label: data.focus.label,
-                   __focus: true }]
+                   x: 0, y: 0, __focus: true }]
     .concat(data.nodes.map(n => ({ id: n.eid, eid: n.eid, name: n.name,
-                                   label: n.label })));
+                                   label: n.label,
+                                   x: (seed[n.eid] || { x: 0, y: 0 }).x,
+                                   y: (seed[n.eid] || { x: 0, y: 0 }).y })));
   const byEid = new Set(nodes.map(n => n.eid));
   const links = data.edges
     .filter(e => byEid.has(e.src) && byEid.has(e.dst))
     .map(e => ({ source: e.src, target: e.dst,
                  __style: relStyle(e.rel), __label: e.rel }));
   graph.graphData({ nodes, links });
+  graph.zoomToFit(400, 80);
   if (data.truncated) toast("Large neighborhood — showing a capped subset");
 }
 

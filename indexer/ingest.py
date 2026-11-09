@@ -315,23 +315,28 @@ INTEGRATES_CYPHER = """
     MATCH (a:Repository {name: $src})
     MATCH (b:Repository {name: row.target})
     MERGE (a)-[r:INTEGRATES]->(b)
-    SET r.refs = row.refs, r.files = row.files, r.samples = row.samples
+    SET r.refs = row.refs, r.files = row.files, r.samples = row.samples,
+        r.byClass = row.byClass, r.strongest = row.strongest
 """
 
 
 def ingest_integrations(driver: Any, repo_name: str,
                         integrations: List[Dict[str, Any]]) -> int:
-    """(:Repository)-[:INTEGRATES {refs, files, samples}]->(:Repository),
-    derived from cross-repo name references (integrations.py). Returns
-    the number of edges written."""
+    """(:Repository)-[:INTEGRATES {refs, files, byClass, strongest,
+    samples}]->(:Repository), derived from cross-repo name references
+    (integrations.py — refs split by evidence class, strongest = highest
+    class present). Returns the number of edges written."""
     if not integrations:
         return 0
     import json as _json
-    rows = [{**i, "samples": _json.dumps(i["samples"])}  # neo4j props are primitives
+    rows = [{**i,
+             # neo4j props are primitives — JSON-encode the containers
+             "samples": _json.dumps(i["samples"]),
+             "byClass": _json.dumps(i.get("byClass", {}))}
             for i in integrations]
     with driver.session() as session:
         session.run(INTEGRATES_CYPHER, batch=rows, src=repo_name)
     log.info("  [+] INTEGRATES from %s: %s", repo_name,
-             ", ".join(f"{i['target']} ({i['refs']} refs)"
+             ", ".join(f"{i['target']} ({i['refs']} refs, {i['strongest']})"
                        for i in integrations))
     return len(integrations)

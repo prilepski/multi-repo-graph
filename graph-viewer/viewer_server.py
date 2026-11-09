@@ -106,9 +106,16 @@ class Api:
                 ORDER BY depth DESC
             """, eid=eid)]
 
+    # evidence-class weights mirror indexer/integrations.py CLASS_WEIGHT
+    IG_CLASS_WEIGHT = {"submodule": 100.0, "code": 40.0, "config": 20.0,
+                       "comment": 5.0, "docs": 1.0}
+
     def integrations(self):
-        """Cross-repo (:Repository)-[:INTEGRATES {refs, files}]->() edges,
-        derived from name references in the indexed sources."""
+        """Cross-repo (:Repository)-[:INTEGRATES {refs, files, byClass,
+        strongest, samples}]->() edges, derived from name references in
+        the indexed sources, split by evidence class (submodule > code >
+        config > comment > docs). `score` weights refs by class so doc
+        verbosity cannot drown code-level evidence."""
         import json as _json
         with self.driver.session() as s:
             out = [dict(r) for r in s.run("""
@@ -116,15 +123,28 @@ class Api:
                 RETURN a.name AS src, elementId(a) AS srcEid,
                        b.name AS dst, elementId(b) AS dstEid,
                        r.refs AS refs, r.files AS files,
-                       r.samples AS samples
+                       r.samples AS samples, r.byClass AS byClass,
+                       r.strongest AS strongest
                 ORDER BY refs DESC
             """)]
-        for row in out:  # samples are stored as a JSON string (neo4j props)
+        for row in out:  # containers are stored as JSON strings (neo4j props)
             if isinstance(row.get("samples"), str):
                 try:
                     row["samples"] = _json.loads(row["samples"])
                 except ValueError:
                     row["samples"] = []
+            if isinstance(row.get("byClass"), str):
+                try:
+                    row["byClass"] = _json.loads(row["byClass"])
+                except ValueError:
+                    row["byClass"] = {}
+            by_class = row.get("byClass") or {}
+            if by_class:  # score = Σ refs_c × weight_c; legacy edges: refs
+                row["score"] = sum(
+                    n * self.IG_CLASS_WEIGHT.get(c, 1.0)
+                    for c, n in by_class.items())
+            else:
+                row["score"] = row.get("refs") or 0
         return out
 
     def neighborhood(self, eid, depth=1, mode="packages"):
@@ -150,13 +170,17 @@ class Api:
                     MATCH (n) WHERE elementId(n) = $eid
                     MATCH (n)-[r:INTEGRATES]->(m:Repository)
                     RETURN type(r) AS rel, elementId(m) AS eid,
-                           labels(m)[0] AS label, m.name AS name, NULL AS kind
+                           labels(m)[0] AS label, m.name AS name, NULL AS kind,
+                           r.refs AS refs, r.strongest AS strongest
                 """, eid=eid):
                     n = {k: r[k] for k in ("eid", "label", "name", "kind")}
                     if n["eid"] != focus["eid"] and n["eid"] not in nodes:
                         nodes[n["eid"]] = n
+                    label = f"{r['rel']} ({r['refs'] or '?'} refs"
+                    if r["strongest"]:
+                        label += f" · {r['strongest']}"
                     edges.append({"src": focus["eid"], "dst": n["eid"],
-                                  "rel": f"{r['rel']} ({dict(r).get('refs', '')})"})
+                                  "rel": label + ")"})
 
             # filter Repository children by browsing mode (File vs Package)
             mode_filter = """

@@ -318,12 +318,22 @@ def main() -> None:
         integrations_total = {}
         for report in repo_reports:
             for i in report.get("integrations", []):
-                integrations_total[f"{report['name']}->{i['target']}"] = i["refs"]
+                integrations_total[f"{report['name']}->{i['target']}"] = {
+                    "refs": i["refs"], "strongest": i["strongest"],
+                    "byClass": i["byClass"]}
         if integrations_total:
             log.info("  [+] %d integration edges: %s", len(integrations_total),
-                     ", ".join(f"{k} ({v})" for k, v in
+                     ", ".join(f"{k} ({v['refs']}, {v['strongest']})" for k, v in
                                sorted(integrations_total.items(),
-                                      key=lambda kv: -kv[1])[:8]))
+                                      key=lambda kv: -kv[1]["refs"])[:8]))
+            strongest_n: Dict[str, int] = {}
+            for v in integrations_total.values():
+                strongest_n[v["strongest"]] = (
+                    strongest_n.get(v["strongest"], 0) + 1)
+            log.info("      strongest evidence class per edge: %s",
+                     ", ".join(f"{c} {n}" for c, n in
+                               sorted(strongest_n.items(),
+                                      key=lambda kv: -kv[1])))
 
         # ---- stage 6 (graph half): neo4j dump --------------------------------
         neo4j_artifact: Dict[str, Any] = {}
