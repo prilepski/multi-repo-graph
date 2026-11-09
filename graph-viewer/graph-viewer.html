@@ -632,8 +632,11 @@ document.getElementById("btn-clearsel").onclick = () => {
   document.addEventListener("keyup", (e) => {
     if (e.key === "Shift") fgElem.classList.remove("lasso-mode");
   });
-  // capture-phase: steal shift+drag before force-graph starts panning
-  fgElem.addEventListener("mousedown", (e) => {
+  // capture-phase on POINTER events: force-graph binds pointerdown and its
+  // preventDefault() cancels the compat mouse events, so a mousedown
+  // listener never fires on real drags (synthetic mouse events DO — which
+  // is why the first test passed while real drags did nothing)
+  fgElem.addEventListener("pointerdown", (e) => {
     window.__lasso.downs++;
     if (!e.shiftKey) return;
     e.stopImmediatePropagation(); e.preventDefault();
@@ -641,7 +644,7 @@ document.getElementById("btn-clearsel").onclick = () => {
     window.__lasso.offsetXY = [e.offsetX, e.offsetY];
     points = [{ x: e.offsetX, y: e.offsetY }];
   }, true);
-  window.addEventListener("mousemove", (e) => {
+  window.addEventListener("pointermove", (e) => {
     if (!points) return;
     window.__lasso.moves++;
     const r = overlay.getBoundingClientRect();
@@ -656,7 +659,7 @@ document.getElementById("btn-clearsel").onclick = () => {
     octx.fillStyle = "rgba(232,182,76,.08)";
     octx.fill();
   });
-  window.addEventListener("mouseup", () => {
+  window.addEventListener("pointerup", () => {
     if (!points) return;
     window.__lasso.ups++;
     const poly = points; points = null;
