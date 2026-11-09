@@ -1126,19 +1126,18 @@ function setSurface(which) {
   document.getElementById("surface-graph").classList.toggle("active", which === "graph");
   document.getElementById("surface-stats").classList.toggle("active", which === "statistics");
   document.getElementById("stats-pane").style.display = which === "statistics" ? "block" : "none";
-  document.getElementById("canvas").style.display = which === "statistics" ? "none" : "block";
+  document.getElementById("fg").style.display = which === "statistics" ? "none" : "block";
   document.getElementById("legend").style.display = which === "statistics" ? "none" : "flex";
   document.getElementById("browse-modes").style.display = which === "statistics" ? "none" : "flex";
   document.getElementById("tree-root").style.display = which === "statistics" ? "none" : "block";
   document.getElementById("stats-tree-root").style.display = which === "statistics" ? "block" : "none";
   document.getElementById("tree-hint").textContent = which === "statistics"
     ? "Click: scope statistics to this folder" : "Click: select & details · Double-click: drill down";
-  showIgFilter();  // evidence-class chips only live on the graph overview
+  showIgFilter();   // evidence-class chips only live on the graph overview
+  showRepoFilter(); // repo selector likewise
   if (which === "statistics") {
     if (!document.getElementById("stats-tree-root").children.length) loadStatsTreeRoot();
     refreshStats();
-  } else {
-    applyView();
   }
 }
 document.getElementById("surface-graph").addEventListener("click", () => setSurface("graph"));
