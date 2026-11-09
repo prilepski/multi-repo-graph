@@ -606,7 +606,8 @@ let clickTimer = null;   // click-select vs dblclick-drill disambiguation
 let lastNodeClick = { eid: null, t: 0 };
 
 const graph = ForceGraph()(fgElem)
-  .maxZoom(1.8)
+  .maxZoom(8)   // deep zoom for label reading; auto-fit stays sane via
+                // deterministic layouts (fixed ring + radial seeds)
   .backgroundColor("#0a1224")
   .nodeLabel(n => `${n.label}: ${n.name}` + (n.file ? `\nfile: ${n.file}` : ""))
   .linkLabel(l => l.__label || "")
