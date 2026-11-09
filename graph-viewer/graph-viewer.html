@@ -452,10 +452,12 @@ function depthOf(eid) {
   return 0.8 + ((h % 100) / 100) * 0.45;
 }
 
+let densityScale = 1;  // 1 for small views, shrinks in dense ones (set per render)
+
 function nodeRadius(node, isFocus) {
   const base = node.label === "Repository" ? 11 : node.label === "Package" ? 8.5
              : node.label === "Type" ? 7 : 5.5;
-  return base * (isFocus ? 1.35 : depthOf(node.eid));
+  return base * (isFocus ? 1.35 : depthOf(node.eid)) * densityScale;
 }
 
 const REL_STYLE = {
@@ -584,7 +586,7 @@ function paintNode(n, ctx, globalScale) {
   const color = colorFor(n.label);
   const r = nodeRadius(n, isFocus);
   ctx.save();
-  ctx.shadowBlur = 9; ctx.shadowColor = color;
+  ctx.shadowBlur = Math.max(3.5, 9 * densityScale); ctx.shadowColor = color;
   ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI);
   ctx.fillStyle = color; ctx.fill();
   ctx.restore();
@@ -592,8 +594,12 @@ function paintNode(n, ctx, globalScale) {
     ctx.beginPath(); ctx.arc(n.x, n.y, r + 3.5, 0, 2 * Math.PI);
     ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.4; ctx.stroke();
   }
-  const showLabel = isFocus || globalScale > 0.85 ||
-                    n.label === "Repository" || n.label === "Package";
+  // tiered labels: coarse zoom shows structure; members appear when zoomed
+  const threshold = n.label === "Type" ? 1.0
+                  : (n.label === "Method" || n.label === "Field"
+                     || n.label === "CallTarget") ? 2.2 : 0.85;
+  const showLabel = isFocus || n.label === "Repository" || n.label === "Package"
+                 || globalScale > threshold;
   if (showLabel) {
     ctx.font = `${(isFocus ? 11.5 : 10) / globalScale}px -apple-system,system-ui,sans-serif`;
     ctx.textAlign = "center";
@@ -773,6 +779,7 @@ function drawRootOverview() {
              x: fx, y: fy, fx, fy };
   });
   const byEid = new Set(nodes.map(n => n.eid));
+  densityScale = Math.max(0.5, Math.min(1, Math.sqrt(60 / roots.length)));
   const links = integrations
     .filter(i => byEid.has(i.srcEid) && byEid.has(i.dstEid))
     .map(i => {
@@ -813,17 +820,21 @@ function renderNeighborhood(data) {
   const seed = { x: 0, y: 0 };
   let angle = -Math.PI / 2;
   const total = data.nodes.length || 1;
+  // ring radius grows with node count: a fixed ring packs 150 nodes at
+  // ~11px spacing (unreadable overlap); sqrt(N) keeps ~30px+ per node
+  const R0 = 200 + 40 * Math.sqrt(total);
   for (const key of Object.keys(groups).sort()) {
     const g = groups[key];
     const sweep = (g.length / total) * Math.PI * 1.7;
     g.forEach((n, i) => {
       const t = g.length === 1 ? 0.5 : i / (g.length - 1);
       const a = angle + t * sweep;
-      const r = 220 + 90 * ((i % 3) / 2);
+      const r = R0 + 130 * ((i % 3) / 2);
       seed[n.eid] = { x: r * Math.cos(a), y: r * Math.sin(a) };
     });
     angle += sweep + 0.25;
   }
+  densityScale = Math.max(0.5, Math.min(1, Math.sqrt(60 / total)));
   const nodes = [{ id: data.focus.eid, eid: data.focus.eid,
                    name: data.focus.name, label: data.focus.label,
                    x: 0, y: 0, __focus: true }]
