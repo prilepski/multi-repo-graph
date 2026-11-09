@@ -226,6 +226,13 @@
   }
   #toast.show { opacity: .95; }
 
+  /* INTEGRATES evidence-class filter (constellation overview) */
+  #ig-filter {
+    position: absolute; top: 40px; left: 50%; transform: translateX(-50%);
+    z-index: 25; display: none; flex-wrap: wrap; gap: 5px;
+    justify-content: center; max-width: 78%;
+  }
+
   /* ----- search ----- */
   #search-box { position: relative; flex: none; }
   #search-box input {
@@ -341,6 +348,7 @@
     <div id="stats-tooltip"></div>
     <div id="details"></div>
     <div id="toast"></div>
+    <div id="ig-filter" class="cat-chips"></div>
   </div>
 </div>
 
@@ -412,10 +420,64 @@ const REL_STYLE = {
   IMPLEMENTS: { color: "rgba(180,138,237,.5)",  arrow: 3.5, width: 1.2 },
 };
 function relStyle(rel) {
-  if (typeof rel === "string" && rel.startsWith("INTEGRATES")) return REL_STYLE.INTEGRATES;
+  if (typeof rel === "string" && rel.startsWith("INTEGRATES")) {
+    // labels carry the strongest evidence class: "INTEGRATES (12 refs · config)"
+    const m = rel.match(/· (\w+)\)$/);
+    const st = (m && IG_CLASS[m[1]]) || IG_CLASS.unknown;
+    return { color: st.color, arrow: 3.5,
+             particles: m && (m[1] === "submodule" || m[1] === "code") ? 2 : 1,
+             width: st.width };
+  }
   const key = (rel || "").split(" ")[0].toUpperCase().replace(/[^A-Z]/g, "");
   return REL_STYLE[key] || { color: "rgba(125,143,181,.25)", arrow: 0,
                              particles: 0, width: 0.8 };
+}
+
+/* INTEGRATES evidence classes — how strongly a repo-to-repo edge is backed:
+   .gitmodules entry > executable code > config/CI wiring > code comment >
+   documentation. Edge color/width encode the strongest class; chips above
+   the constellation toggle classes (persisted). unknown = pre-classification
+   edges from old runs (kept visible, legacy gold). */
+const IG_CLASS = {
+  submodule: { label: "Submodule", color: "rgba(255,122,89,.8)",    width: 3.0 },
+  code:      { label: "Code",      color: "rgba(95,220,130,.6)",   width: 2.2 },
+  config:    { label: "Config",    color: "rgba(96,190,255,.55)",  width: 1.7 },
+  comment:   { label: "Comment",   color: "rgba(180,138,237,.45)", width: 1.2 },
+  docs:      { label: "Docs",      color: "rgba(196,186,156,.22)", width: 0.7 },
+  unknown:   { label: "Legacy",    color: "rgba(232,182,76,.45)",  width: 1.0 },
+};
+const IG_CLASS_ORDER = ["submodule", "code", "config", "comment", "docs"];
+let igFilter = new Set(JSON.parse(localStorage.getItem("ig-classes") || "null")
+                       || IG_CLASS_ORDER);
+
+function igFilterVisible() {
+  return surface === "graph" && current === null && rootData !== null;
+}
+function showIgFilter() {
+  const el = document.getElementById("ig-filter");
+  el.style.display = igFilterVisible() ? "flex" : "none";
+}
+function buildIgFilter() {
+  const el = document.getElementById("ig-filter");
+  el.innerHTML = "";
+  for (const c of IG_CLASS_ORDER) {
+    const st = IG_CLASS[c];
+    const chip = document.createElement("span");
+    chip.className = "cat-chip" + (igFilter.has(c) ? "" : " off");
+    chip.title = `Show/hide edges whose strongest evidence class is ${c}`;
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.style.background = st.color;
+    chip.appendChild(dot);
+    chip.appendChild(document.createTextNode(st.label));
+    chip.onclick = () => {
+      if (igFilter.has(c)) igFilter.delete(c); else igFilter.add(c);
+      localStorage.setItem("ig-classes", JSON.stringify([...igFilter]));
+      buildIgFilter();
+      if (igFilterVisible()) drawRootOverview();
+    };
+    el.appendChild(chip);
+  }
 }
 
 function paintNode(n, ctx, globalScale) {
@@ -494,33 +556,66 @@ animBtn.addEventListener("click", () => {
 });
 applyAnim();
 
+let rootData = null;   // {roots, integrations} — cached for filter re-draws
+
 async function renderRootOverview(roots) {
   current = null;
   let integrations = [];
   try { integrations = await api("/api/integrations"); } catch (e) {}
-  const maxRefs = Math.max(1, ...integrations.map(i => i.refs));
+  rootData = { roots, integrations };
+  drawRootOverview();
+  buildIgFilter();
+  showIgFilter();
+  if (integrations.length)
+    toast(integrations.length + " integration links — chips filter by evidence class");
+}
+
+function drawRootOverview() {
+  if (!rootData) return;
+  const { roots, integrations } = rootData;
+  // class-weighted score: 300 doc mentions must not outshine 8 code refs
+  const maxScore = Math.max(1, ...integrations.map(i => i.score || i.refs || 0));
   // deterministic ring layout, positions FIXED (fx/fy): a fully-linked repo
   // web doesn't force-lay well, and fixed coords render correctly even in
   // throttled/background tabs where rAF-driven ticks stall
   const R = Math.max(260, Math.min(fgElem.clientWidth, fgElem.clientHeight) * 0.32);
   const nodes = roots.map((r, i) => {
     const a = (i / roots.length) * Math.PI * 2 - Math.PI / 2;
+    // preset x/y = fx/fy: d3 only copies fx->x on its first tick, so a
+    // zoomToFit right after graphData would otherwise see undefined
+    // coords and produce the broken initial camera (clumped top-left)
+    const fx = R * Math.cos(a), fy = R * Math.sin(a);
     return { id: r.eid, eid: r.eid, name: r.name, label: r.label,
-             fx: R * Math.cos(a), fy: R * Math.sin(a) };
+             x: fx, y: fy, fx, fy };
   });
   const byEid = new Set(nodes.map(n => n.eid));
   const links = integrations
     .filter(i => byEid.has(i.srcEid) && byEid.has(i.dstEid))
-    .map(i => ({ source: i.srcEid, target: i.dstEid,
-                 __style: relStyle("INTEGRATES"),
-                 __width: 0.7 + 3.2 * (i.refs / maxRefs),
-                 __label: `${i.src} → ${i.dst} · ${i.refs} refs (${i.files} files)` }));
+    // legacy (pre-classification) edges have no strongest -> always shown
+    .filter(i => !i.strongest || igFilter.has(i.strongest))
+    .map(i => {
+      const cls = i.strongest || "unknown";
+      const st = IG_CLASS[cls];
+      const score = i.score || i.refs || 0;
+      const parts = Object.entries(i.byClass || {})
+        .sort((a, b) => IG_CLASS_ORDER.indexOf(a[0]) - IG_CLASS_ORDER.indexOf(b[0]))
+        .map(([c, n]) => `${c} ${n}`).join(" · ");
+      return { source: i.srcEid, target: i.dstEid,
+               __style: { color: st.color, arrow: 3.5,
+                          particles: cls === "submodule" || cls === "code" ? 2 : 1,
+                          width: st.width },
+               __width: Math.min(5, st.width * (0.7 + 1.2 * Math.sqrt(score / maxScore))),
+               __label: `${i.src} → ${i.dst} · ${i.refs} refs (${i.files} files)`
+                      + (parts ? `\n${parts}` : "") };
+    });
+  graph.cooldownTime(120);  // all-fixed layout: settle fast, so the global
+                             // onEngineStop refit fires immediately, not at 6s
   graph.graphData({ nodes, links });
-  graph.zoomToFit(400, 80);
-  if (integrations.length) toast(integrations.length + " cross-repo integration links");
+  graph.zoomToFit(0, 80);   // instant fit — coords are preset above
 }
 
 function renderNeighborhood(data) {
+  showIgFilter();   // hides: only the root overview keeps the filter row
   // seed a radial layout (focus center, neighbors by relationship groups) so
   // the view is structured immediately; the force engine refines from there
   const relOf = {};
@@ -559,6 +654,8 @@ function renderNeighborhood(data) {
     .filter(e => byEid.has(e.src) && byEid.has(e.dst))
     .map(e => ({ source: e.src, target: e.dst,
                  __style: relStyle(e.rel), __label: e.rel }));
+  graph.cooldownTime(6000);  // force-refined layout: full cooldown, engine-stop
+                             // refit (overview draws use a short 120ms one)
   graph.graphData({ nodes, links });
   graph.zoomToFit(400, 80);
   if (data.truncated) toast("Large neighborhood — showing a capped subset");
@@ -920,6 +1017,7 @@ function setSurface(which) {
   document.getElementById("stats-tree-root").style.display = which === "statistics" ? "block" : "none";
   document.getElementById("tree-hint").textContent = which === "statistics"
     ? "Click: scope statistics to this folder" : "Click: select & details · Double-click: drill down";
+  showIgFilter();  // evidence-class chips only live on the graph overview
   if (which === "statistics") {
     if (!document.getElementById("stats-tree-root").children.length) loadStatsTreeRoot();
     refreshStats();
